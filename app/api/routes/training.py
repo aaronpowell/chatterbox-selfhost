@@ -1,13 +1,12 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from redis import Redis
 from rq import Queue
 from sqlmodel import Session, select
 
-from app.config import settings
 from app.db import get_session
 from app.models import TrainingJob
+from app.redis_conn import get_redis_connection
 from app.schemas import TrainingJobCreate
 from worker.tasks import run_training_job
 
@@ -26,7 +25,7 @@ def create_training_job(payload: TrainingJobCreate, session: Session = Depends(g
     session.commit()
     session.refresh(job)
 
-    redis_conn = Redis.from_url(settings.redis_url)
+    redis_conn = get_redis_connection()
     queue = Queue("training", connection=redis_conn)
     queue.enqueue(run_training_job, job.id)
     return job

@@ -1,11 +1,10 @@
-from redis import Redis
 from rq import Worker
 
-from app.config import settings
+from app.redis_conn import get_redis_connection
 
 
 def main():
-    redis_conn = Redis.from_url(settings.redis_url)
+    redis_conn = get_redis_connection()
     worker = Worker(["training"], connection=redis_conn)
     worker.work()
 

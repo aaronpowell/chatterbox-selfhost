@@ -24,6 +24,8 @@ class TTSRequest(BaseModel):
     text: str = Field(min_length=1)
     voice_profile_id: Optional[int] = None
     format: str = "wav"
+    exaggeration: float = Field(default=0.5, ge=0.0, le=1.0)
+    cfg_weight: float = Field(default=0.5, ge=0.0, le=1.0)
 
 
 class TrainingJobCreate(BaseModel):

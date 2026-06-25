@@ -3,7 +3,7 @@ name = "chatterbox-selfhost"
 version = "0.1.0"
 description = "Self-hosted Chatterbox API with training and admin portal"
 readme = "README.md"
-requires-python = ">=3.11,<3.13"
+requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115.0",
   "uvicorn[standard]>=0.30.0",

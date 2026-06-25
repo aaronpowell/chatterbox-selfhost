@@ -27,7 +27,7 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templa
 
 @app.get("/admin", response_class=HTMLResponse, tags=["admin"])
 def admin(request: Request):
-    return templates.TemplateResponse("admin.html", {"request": request, "app_name": settings.app_name})
+    return templates.TemplateResponse(request=request, name="admin.html", context={"app_name": settings.app_name})
 
 
 app.include_router(health_router)

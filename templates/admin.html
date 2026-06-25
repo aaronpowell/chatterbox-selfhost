@@ -626,7 +626,7 @@
           <div class="form-group">
             <label for="ttsVoice">Voice profile</label>
             <select id="ttsVoice">
-              <option value="">— Default voice —</option>
+              <option value="">★ Default voice (built-in)</option>
             </select>
           </div>
           <div class="form-group">
@@ -847,13 +847,19 @@ let voices = [];
 async function loadVoices() {
   try {
     const res = await fetch("/profiles");
-    if (!res.ok) return;
-    voices = await res.json();
-    renderVoiceList();
-    renderVoiceSelect();
+    if (res.ok) voices = await res.json();
   } catch (e) {
     console.warn("Could not load voices:", e);
   }
+  renderVoiceList();
+  renderVoiceSelect();
+}
+
+function selectVoice(card, id) {
+  document.querySelectorAll(".voice-card").forEach(c => c.classList.remove("selected"));
+  if (card) card.classList.add("selected");
+  document.getElementById("ttsVoice").value = (id == null) ? "" : id;
+  document.querySelector('[data-tab="generate"]').click();
 }
 
 function renderVoiceList() {
@@ -864,15 +870,27 @@ function renderVoiceList() {
 
   list.querySelectorAll(".voice-card").forEach(c => c.remove());
 
-  if (voices.length === 0) {
-    empty.style.display = "";
-    return;
-  }
+  // Always-present built-in default voice (no reference audio required).
+  const selectedId = document.getElementById("ttsVoice").value;
+  const def = document.createElement("div");
+  def.className = "voice-card" + (selectedId === "" ? " selected" : "");
+  def.dataset.id = "";
+  def.innerHTML = `
+    <div class="voice-avatar">★</div>
+    <div class="voice-info">
+      <div class="voice-name">Default voice</div>
+      <div class="voice-lang">Built-in · no reference needed</div>
+    </div>
+    <span class="badge badge-primary">Built-in</span>`;
+  def.addEventListener("click", () => selectVoice(def, ""));
+  list.appendChild(def);
+
+  // The default voice is always available, so the empty hint is never needed.
   empty.style.display = "none";
 
   voices.forEach(v => {
     const card = document.createElement("div");
-    card.className = "voice-card";
+    card.className = "voice-card" + (String(v.id) === selectedId ? " selected" : "");
     card.dataset.id = v.id;
     const initial = (v.name || "?")[0].toUpperCase();
     card.innerHTML = `
@@ -882,27 +900,31 @@ function renderVoiceList() {
         <div class="voice-lang">${escHtml(v.language)}</div>
       </div>
       <span class="badge">${v.reference_audio_path ? "✓" : "—"}</span>`;
-    card.addEventListener("click", () => {
-      document.querySelectorAll(".voice-card").forEach(c => c.classList.remove("selected"));
-      card.classList.add("selected");
-      document.getElementById("ttsVoice").value = v.id;
-      // switch to generate tab
-      document.querySelector('[data-tab="generate"]').click();
-    });
+    card.addEventListener("click", () => selectVoice(card, v.id));
     list.appendChild(card);
   });
 }
 
 function renderVoiceSelect() {
   const sel = document.getElementById("ttsVoice");
-  sel.innerHTML = '<option value="">— Default voice —</option>';
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">★ Default voice (built-in)</option>';
   voices.forEach(v => {
     const opt = document.createElement("option");
     opt.value = v.id;
     opt.textContent = v.name + " (" + v.language + ")";
     sel.appendChild(opt);
   });
+  sel.value = prev;
 }
+
+// Keep the sidebar highlight in sync when the dropdown changes directly.
+document.getElementById("ttsVoice").addEventListener("change", (e) => {
+  const id = e.target.value;
+  const card = [...document.querySelectorAll(".voice-card")].find(c => c.dataset.id === id);
+  document.querySelectorAll(".voice-card").forEach(c => c.classList.remove("selected"));
+  if (card) card.classList.add("selected");
+});
 
 function escHtml(s) {
   return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");

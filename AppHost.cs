@@ -17,9 +17,11 @@ var api = builder.AddUvicornApp("api", ".", "app.main:app")
     .WaitFor(redis)
     .WithUrl("/admin", "Admin Portal");
 
-// Python worker service — AddPythonModule runs `python -m worker.worker`
+// Python worker service — shares the same venv as the api; wait for api to
+// finish venv setup before starting (avoids a Windows file-lock race on .venv)
 builder.AddPythonModule("worker", ".", "worker.worker")
     .WithReference(redis)
-    .WaitFor(redis);
+    .WaitFor(redis)
+    .WaitFor(api);
 
 builder.Build().Run();

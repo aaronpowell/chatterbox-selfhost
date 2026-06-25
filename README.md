@@ -13,7 +13,7 @@ Self-hosted Chatterbox API with:
 ### With .NET Aspire (file-based AppHost)
 
 ```bash
-dotnet run --project Aspire.Host.AppHost
+dotnet run Aspire.Host.AppHost/AppHost.cs
 ```
 
 This orchestrates:
@@ -69,4 +69,3 @@ docker compose up -d
 
 - Fine-tuning API is scaffolded in v1 and wired for queue execution; the training runner is intentionally isolated in `trainer/` so compute/runtime choices stay flexible.
 - Inference uses official `chatterbox-tts` dependency.
-

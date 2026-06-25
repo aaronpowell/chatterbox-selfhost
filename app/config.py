@@ -1,3 +1,4 @@
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,7 +11,10 @@ class Settings(BaseSettings):
     app_port: int = 8000
 
     database_url: str = "sqlite:///./data/app.db"
-    redis_url: str = "redis://localhost:6379/0"
+    redis_url: str = Field(
+        default="redis://localhost:6379/0",
+        validation_alias=AliasChoices("REDIS_URL", "REDIS_URI", "ConnectionStrings__redis"),
+    )
 
     audio_storage_path: str = "./audio"
     model_storage_path: str = "./models"
@@ -21,4 +25,3 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-

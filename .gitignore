@@ -10,4 +10,5 @@ build/
 data/
 audio/
 models/
-
+bin
+obj

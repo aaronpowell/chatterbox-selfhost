@@ -10,6 +10,25 @@ Self-hosted Chatterbox API with:
 
 ## Quick start
 
+### With .NET Aspire (file-based AppHost)
+
+```bash
+dotnet run Aspire.Host.AppHost/AppHost.cs
+```
+
+This orchestrates:
+- Redis cache with RedisCommander UI
+- FastAPI API server (with hot reload)
+- Background worker service
+
+Open:
+
+- AppHost dashboard: `http://localhost:15000`
+- API docs: `http://localhost:8000/docs` (once services start)
+- RedisCommander: Available in dashboard resources
+
+### Manual setup
+
 ```bash
 python -m venv .venv
 . .venv/Scripts/activate
@@ -50,4 +69,3 @@ docker compose up -d
 
 - Fine-tuning API is scaffolded in v1 and wired for queue execution; the training runner is intentionally isolated in `trainer/` so compute/runtime choices stay flexible.
 - Inference uses official `chatterbox-tts` dependency.
-

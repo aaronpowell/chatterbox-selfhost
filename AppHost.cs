@@ -10,6 +10,7 @@ var redis = builder.AddRedis("redis")
 
 // Python FastAPI application — AddUvicornApp manages the venv and runs uvicorn
 var api = builder.AddUvicornApp("api", ".", "app.main:app")
+    .WithUv()
     .WithVirtualEnvironment(".venv-api")
     .WithHttpEndpoint(port: 8000, env: "UVICORN_PORT")
     .WithHttpHealthCheck("/health")
@@ -20,6 +21,7 @@ var api = builder.AddUvicornApp("api", ".", "app.main:app")
 
 // Python worker service — isolated venv mirrors independent container deployment
 builder.AddPythonModule("worker", ".", "worker.worker")
+    .WithUv()
     .WithVirtualEnvironment(".venv-worker")
     .WithReference(redis)
     .WaitFor(redis);

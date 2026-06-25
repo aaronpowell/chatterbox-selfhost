@@ -19,7 +19,7 @@ class ChatterboxService:
     def is_available(self) -> bool:
         return self._available
 
-    def synthesize(self, text: str, voice_prompt_path: str | None = None) -> str:
+    def synthesize(self, text: str, voice_prompt_path: str | None = None, exaggeration: float = 0.5, cfg_weight: float = 0.5) -> str:
         output_path = Path(settings.audio_storage_path) / "latest.wav"
         if not self._available:
             output_path.write_bytes(b"")
@@ -27,7 +27,7 @@ class ChatterboxService:
 
         import torchaudio as ta  # type: ignore
 
-        wav = self._model.generate(text, audio_prompt_path=voice_prompt_path)
+        wav = self._model.generate(text, audio_prompt_path=voice_prompt_path, exaggeration=exaggeration, cfg_weight=cfg_weight)
         ta.save(str(output_path), wav, self._model.sr)
         return str(output_path)
 

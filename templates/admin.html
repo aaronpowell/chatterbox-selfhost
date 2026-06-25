@@ -1,95 +1,1211 @@
 <!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{{ app_name }} admin</title>
-    <style>
-      body { font-family: Arial, sans-serif; margin: 2rem; max-width: 900px; }
-      section { margin-bottom: 2rem; padding: 1rem; border: 1px solid #ccc; border-radius: 8px; }
-      input, button, textarea { margin: 0.25rem 0; width: 100%; }
-      button { width: auto; padding: 0.5rem 1rem; }
-      pre { background: #f6f8fa; padding: 0.75rem; overflow: auto; }
-    </style>
-  </head>
-  <body>
-    <h1>{{ app_name }} admin</h1>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ app_name }}</title>
+  <style>
+    /* ── Design tokens ───────────────────────────────────────────── */
+    :root {
+      --bg:           #f8fafc;
+      --surface:      #ffffff;
+      --surface-2:    #f1f5f9;
+      --border:       #e2e8f0;
+      --text:         #0f172a;
+      --text-muted:   #64748b;
+      --primary:      #6366f1;
+      --primary-hov:  #4f46e5;
+      --primary-dim:  #eef2ff;
+      --success:      #10b981;
+      --danger:       #ef4444;
+      --warning:      #f59e0b;
+      --radius:       10px;
+      --radius-sm:    6px;
+      --shadow:       0 1px 4px rgba(0,0,0,.08);
+      --shadow-md:    0 4px 16px rgba(0,0,0,.10);
+      --transition:   .18s ease;
+    }
+    [data-theme="dark"] {
+      --bg:           #0f172a;
+      --surface:      #1e293b;
+      --surface-2:    #334155;
+      --border:       #475569;
+      --text:         #f1f5f9;
+      --text-muted:   #94a3b8;
+      --primary-dim:  #312e81;
+      --shadow:       0 1px 4px rgba(0,0,0,.35);
+      --shadow-md:    0 4px 16px rgba(0,0,0,.45);
+    }
 
-    <section>
-      <h2>Create profile</h2>
-      <input id="profileName" placeholder="Profile name" />
-      <input id="profileLang" placeholder="Language (en)" value="en" />
-      <button onclick="createProfile()">Create</button>
-      <pre id="profileResult"></pre>
-    </section>
+    /* ── Reset / Base ────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 15px; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      transition: background var(--transition), color var(--transition);
+    }
+    a { color: var(--primary); text-decoration: none; }
 
-    <section>
-      <h2>Create training job</h2>
-      <input id="datasetPath" placeholder="Dataset path" />
-      <input id="baseModel" placeholder="Base model" value="chatterbox-tts" />
-      <button onclick="createTrainingJob()">Start training</button>
-      <pre id="trainingResult"></pre>
-    </section>
+    /* ── Navbar ──────────────────────────────────────────────────── */
+    .navbar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 1.25rem;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: var(--shadow);
+    }
+    .navbar-brand {
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+      font-weight: 700;
+      font-size: 1.05rem;
+      color: var(--text);
+    }
+    .navbar-brand svg { color: var(--primary); }
+    .navbar-right { display: flex; align-items: center; gap: .75rem; }
 
-    <section>
-      <h2>Synthesize preview</h2>
-      <textarea id="ttsText" rows="4" placeholder="Text to synthesize"></textarea>
-      <input id="ttsVoiceId" placeholder="Voice profile ID (optional)" />
-      <button onclick="createSpeech()">Generate</button>
-      <pre id="ttsResult"></pre>
-      <audio id="audioPlayer" controls></audio>
-    </section>
+    /* ── Theme toggle ────────────────────────────────────────────── */
+    .theme-toggle {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: .3rem .55rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: .3rem;
+      font-size: .8rem;
+      color: var(--text-muted);
+      transition: background var(--transition), border-color var(--transition);
+    }
+    .theme-toggle:hover { background: var(--border); }
 
-    <script>
-      async function createProfile() {
-        const payload = {
-          name: document.getElementById("profileName").value,
-          language: document.getElementById("profileLang").value || "en"
-        };
-        const res = await fetch("/profiles", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-        const data = await res.json();
-        document.getElementById("profileResult").textContent = JSON.stringify(data, null, 2);
+    /* ── Layout ──────────────────────────────────────────────────── */
+    .layout {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: 0;
+      min-height: calc(100vh - 56px);
+    }
+    @media (max-width: 768px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+    }
+
+    /* ── Sidebar ─────────────────────────────────────────────────── */
+    .sidebar {
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+    }
+    .sidebar-header {
+      padding: 1rem 1.25rem .75rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .sidebar-title {
+      font-size: .8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--text-muted);
+    }
+    .voice-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: .5rem;
+    }
+    .voice-card {
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+      padding: .65rem .8rem;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: background var(--transition), border-color var(--transition);
+      margin-bottom: 2px;
+    }
+    .voice-card:hover { background: var(--surface-2); }
+    .voice-card.selected {
+      background: var(--primary-dim);
+      border-color: var(--primary);
+    }
+    .voice-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--primary) 0%, #8b5cf6 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: .85rem;
+      font-weight: 700;
+      color: #fff;
+      flex-shrink: 0;
+    }
+    .voice-info { flex: 1; min-width: 0; }
+    .voice-name {
+      font-size: .875rem;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .voice-lang {
+      font-size: .75rem;
+      color: var(--text-muted);
+    }
+    .voice-empty {
+      text-align: center;
+      padding: 2rem 1rem;
+      color: var(--text-muted);
+      font-size: .875rem;
+    }
+    .voice-empty svg { display: block; margin: 0 auto .75rem; opacity: .4; }
+
+    /* ── Studio ──────────────────────────────────────────────────── */
+    .studio {
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+      max-width: 760px;
+    }
+
+    /* ── Tabs ────────────────────────────────────────────────────── */
+    .tabs {
+      display: flex;
+      gap: .25rem;
+      background: var(--surface-2);
+      border-radius: var(--radius);
+      padding: .25rem;
+      border: 1px solid var(--border);
+      width: fit-content;
+    }
+    .tab-btn {
+      padding: .45rem 1rem;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-size: .875rem;
+      font-weight: 500;
+      transition: background var(--transition), color var(--transition);
+    }
+    .tab-btn:hover { color: var(--text); background: var(--border); }
+    .tab-btn.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: flex; flex-direction: column; gap: 1rem; }
+
+    /* ── Cards ───────────────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      box-shadow: var(--shadow);
+    }
+    .card-title {
+      font-size: .8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--text-muted);
+      margin-bottom: .875rem;
+    }
+
+    /* ── Form elements ───────────────────────────────────────────── */
+    label {
+      display: block;
+      font-size: .8rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: .3rem;
+    }
+    input[type="text"], input[type="email"], select, textarea {
+      width: 100%;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      font-size: .875rem;
+      padding: .55rem .75rem;
+      outline: none;
+      transition: border-color var(--transition), box-shadow var(--transition);
+      font-family: inherit;
+    }
+    input[type="text"]:focus, select:focus, textarea:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(99,102,241,.15);
+    }
+    textarea { resize: vertical; min-height: 130px; }
+    select { cursor: pointer; }
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: .75rem;
+    }
+    @media (max-width: 500px) { .form-row { grid-template-columns: 1fr; } }
+    .form-group { display: flex; flex-direction: column; gap: .3rem; }
+
+    /* ── Sliders ─────────────────────────────────────────────────── */
+    .slider-row {
+      display: flex;
+      flex-direction: column;
+      gap: .35rem;
+      margin-bottom: .75rem;
+    }
+    .slider-label-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .slider-label { font-size: .8rem; font-weight: 600; color: var(--text-muted); }
+    .slider-value {
+      font-size: .8rem;
+      font-weight: 700;
+      color: var(--primary);
+      background: var(--primary-dim);
+      padding: .1rem .45rem;
+      border-radius: 20px;
+      min-width: 36px;
+      text-align: center;
+    }
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 6px;
+      background: var(--border);
+      border-radius: 3px;
+      outline: none;
+      cursor: pointer;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--primary);
+      cursor: pointer;
+      box-shadow: 0 1px 4px rgba(99,102,241,.4);
+      transition: transform .1s;
+    }
+    input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.15); }
+    input[type="range"]::-moz-range-thumb {
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      background: var(--primary);
+      cursor: pointer;
+      border: none;
+    }
+
+    /* ── Buttons ─────────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: .45rem;
+      padding: .6rem 1.2rem;
+      border-radius: var(--radius-sm);
+      border: none;
+      font-size: .875rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background var(--transition), transform .1s, box-shadow var(--transition);
+      font-family: inherit;
+    }
+    .btn:active { transform: scale(.97); }
+    .btn-primary {
+      background: var(--primary);
+      color: #fff;
+    }
+    .btn-primary:hover { background: var(--primary-hov); box-shadow: 0 2px 8px rgba(99,102,241,.35); }
+    .btn-primary:disabled { opacity: .55; cursor: not-allowed; transform: none; box-shadow: none; }
+    .btn-secondary {
+      background: var(--surface-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { background: var(--border); }
+    .btn-danger {
+      background: var(--danger);
+      color: #fff;
+    }
+    .btn-danger:hover { background: #dc2626; }
+    .btn-success {
+      background: var(--success);
+      color: #fff;
+    }
+    .btn-success:hover { background: #059669; }
+    .btn-icon {
+      padding: .4rem;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      border-radius: var(--radius-sm);
+    }
+    .btn-icon:hover { background: var(--surface-2); color: var(--text); }
+    .btn-sm { padding: .35rem .75rem; font-size: .8rem; }
+
+    /* ── Progress ────────────────────────────────────────────────── */
+    .progress-wrap {
+      display: none;
+      flex-direction: column;
+      gap: .5rem;
+    }
+    .progress-wrap.visible { display: flex; }
+    .progress-track {
+      height: 8px;
+      background: var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--primary) 0%, #8b5cf6 100%);
+      border-radius: 4px;
+      width: 0%;
+      transition: width .4s ease;
+    }
+    .progress-label {
+      font-size: .8rem;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    /* ── Audio player ────────────────────────────────────────────── */
+    .audio-result {
+      display: none;
+      flex-direction: column;
+      gap: .75rem;
+    }
+    .audio-result.visible { display: flex; }
+    audio {
+      width: 100%;
+      border-radius: var(--radius-sm);
+      outline: none;
+    }
+    .audio-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+
+    /* ── Toast ───────────────────────────────────────────────────── */
+    .toast-container {
+      position: fixed;
+      bottom: 1.25rem;
+      right: 1.25rem;
+      z-index: 999;
+      display: flex;
+      flex-direction: column;
+      gap: .5rem;
+      pointer-events: none;
+    }
+    .toast {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: .75rem 1rem;
+      font-size: .875rem;
+      box-shadow: var(--shadow-md);
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+      min-width: 240px;
+      pointer-events: all;
+      animation: slideIn .2s ease;
+    }
+    .toast.success { border-left: 4px solid var(--success); }
+    .toast.error   { border-left: 4px solid var(--danger); }
+    .toast.info    { border-left: 4px solid var(--primary); }
+    @keyframes slideIn { from { transform: translateX(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+    @keyframes fadeOut { to { opacity: 0; transform: translateX(40px); } }
+
+    /* ── Drop zone ───────────────────────────────────────────────── */
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 2rem 1rem;
+      text-align: center;
+      cursor: pointer;
+      color: var(--text-muted);
+      font-size: .875rem;
+      transition: border-color var(--transition), background var(--transition);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: .5rem;
+    }
+    .drop-zone:hover, .drop-zone.dragover {
+      border-color: var(--primary);
+      background: var(--primary-dim);
+      color: var(--primary);
+    }
+    .drop-zone svg { opacity: .5; }
+    .drop-zone input[type="file"] { display: none; }
+    .file-chosen { font-weight: 600; color: var(--success); }
+
+    /* ── Recording ───────────────────────────────────────────────── */
+    .record-panel {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+    }
+    .record-visualizer {
+      width: 100%;
+      height: 80px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+    }
+    .record-controls { display: flex; gap: .75rem; align-items: center; }
+    .record-timer {
+      font-variant-numeric: tabular-nums;
+      font-size: .9rem;
+      font-weight: 700;
+      color: var(--danger);
+      min-width: 50px;
+    }
+    .rec-dot {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--danger);
+      margin-right: .3rem;
+      animation: blink 1s step-start infinite;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* ── Divider ─────────────────────────────────────────────────── */
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+      color: var(--text-muted);
+      font-size: .75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+    .divider::before, .divider::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* ── Badge ───────────────────────────────────────────────────── */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: .15rem .45rem;
+      border-radius: 20px;
+      font-size: .7rem;
+      font-weight: 700;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+    }
+    .badge-primary { background: var(--primary-dim); color: var(--primary); border-color: var(--primary); }
+
+    /* ── Source switcher (upload / record) ───────────────────────── */
+    .source-tabs {
+      display: flex;
+      gap: .25rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: .875rem;
+    }
+    .src-tab {
+      padding: .5rem .9rem;
+      font-size: .8rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      transition: color var(--transition), border-color var(--transition);
+    }
+    .src-tab:hover { color: var(--text); }
+    .src-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+    /* ── Scrollbar ───────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<!-- Navbar -->
+<nav class="navbar">
+  <div class="navbar-brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 3a9 9 0 0 1 9 9"/><path d="M12 3a9 9 0 0 0-9 9"/><path d="M3 12a9 9 0 0 0 9 9"/><path d="M21 12a9 9 0 0 1-9 9"/>
+      <circle cx="12" cy="12" r="3"/>
+    </svg>
+    {{ app_name }}
+  </div>
+  <div class="navbar-right">
+    <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+      <span id="themeIcon">🌙</span>
+      <span id="themeLabel">Dark</span>
+    </button>
+  </div>
+</nav>
+
+<!-- Layout -->
+<div class="layout">
+
+  <!-- Sidebar: Voice Library -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <span class="sidebar-title">Voice library</span>
+      <span class="badge badge-primary" id="voiceCount">0</span>
+    </div>
+    <div class="voice-list" id="voiceList">
+      <div class="voice-empty" id="voiceEmpty">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+          <line x1="12" y1="19" x2="12" y2="22"/>
+          <line x1="8" y1="22" x2="16" y2="22"/>
+        </svg>
+        No voices yet.<br>Add one on the Voices tab.
+      </div>
+    </div>
+  </aside>
+
+  <!-- Studio -->
+  <main class="studio">
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="generate">🎙 Generate</button>
+      <button class="tab-btn" data-tab="voices">✨ Voices</button>
+    </div>
+
+    <!-- ── Tab: Generate ── -->
+    <div class="tab-panel active" id="tab-generate">
+
+      <!-- Script -->
+      <div class="card">
+        <div class="card-title">Script</div>
+        <div class="form-group">
+          <label for="ttsText">Enter text to synthesise</label>
+          <textarea id="ttsText" placeholder="Type or paste your script here…"></textarea>
+          <div style="font-size:.75rem;color:var(--text-muted);text-align:right;margin-top:.2rem">
+            <span id="charCount">0</span> characters
+          </div>
+        </div>
+      </div>
+
+      <!-- Voice + Settings -->
+      <div class="card">
+        <div class="card-title">Voice & settings</div>
+
+        <div class="form-row" style="margin-bottom:1rem">
+          <div class="form-group">
+            <label for="ttsVoice">Voice profile</label>
+            <select id="ttsVoice">
+              <option value="">— Default voice —</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="ttsFormat">Output format</label>
+            <select id="ttsFormat">
+              <option value="wav">WAV</option>
+              <option value="mp3">MP3</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Sliders -->
+        <div class="slider-row">
+          <div class="slider-label-row">
+            <span class="slider-label">Exaggeration</span>
+            <span class="slider-value" id="exagVal">0.50</span>
+          </div>
+          <input type="range" id="exaggeration" min="0" max="1" step="0.01" value="0.5">
+          <div style="font-size:.72rem;color:var(--text-muted)">Controls emotion expressiveness. Higher = more dramatic delivery.</div>
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-label-row">
+            <span class="slider-label">CFG Weight</span>
+            <span class="slider-value" id="cfgVal">0.50</span>
+          </div>
+          <input type="range" id="cfgWeight" min="0" max="1" step="0.01" value="0.5">
+          <div style="font-size:.72rem;color:var(--text-muted)">Classifier-free guidance strength. Higher = closer adherence to the voice prompt.</div>
+        </div>
+      </div>
+
+      <!-- Generate button + progress -->
+      <div style="display:flex;gap:.75rem;flex-wrap:wrap">
+        <button class="btn btn-primary" id="generateBtn" style="flex:1;min-width:160px">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Generate audio
+        </button>
+        <button class="btn btn-secondary" id="cancelBtn" style="display:none">Cancel</button>
+      </div>
+
+      <!-- Progress -->
+      <div class="progress-wrap" id="progressWrap">
+        <div class="progress-track">
+          <div class="progress-bar" id="progressBar"></div>
+        </div>
+        <div class="progress-label">
+          <span id="progressStatus">Initialising…</span>
+          <span id="progressPct">0%</span>
+        </div>
+      </div>
+
+      <!-- Result -->
+      <div class="audio-result" id="audioResult">
+        <div class="card-title" style="margin-bottom:.25rem">Generated audio</div>
+        <audio id="audioPlayer" controls></audio>
+        <div class="audio-actions">
+          <a class="btn btn-secondary btn-sm" id="downloadLink" download="speech.wav">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download
+          </a>
+        </div>
+      </div>
+
+    </div><!-- /tab-generate -->
+
+    <!-- ── Tab: Voices ── -->
+    <div class="tab-panel" id="tab-voices">
+
+      <div class="card">
+        <div class="card-title">Add a new voice</div>
+
+        <div class="form-row" style="margin-bottom:1rem">
+          <div class="form-group">
+            <label for="voiceName">Voice name</label>
+            <input type="text" id="voiceName" placeholder="e.g. My Voice" />
+          </div>
+          <div class="form-group">
+            <label for="voiceLang">Language</label>
+            <select id="voiceLang">
+              <option value="en">English (en)</option>
+              <option value="en-us">English US (en-us)</option>
+              <option value="en-gb">English GB (en-gb)</option>
+              <option value="de">German (de)</option>
+              <option value="fr">French (fr)</option>
+              <option value="es">Spanish (es)</option>
+              <option value="it">Italian (it)</option>
+              <option value="pt">Portuguese (pt)</option>
+              <option value="zh">Chinese (zh)</option>
+              <option value="ja">Japanese (ja)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Source tabs -->
+        <div class="source-tabs">
+          <button class="src-tab active" data-src="upload">⬆ Upload file</button>
+          <button class="src-tab" data-src="record">⏺ Record</button>
+        </div>
+
+        <!-- Upload panel -->
+        <div id="src-upload">
+          <div class="drop-zone" id="dropZone">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            <span id="dropLabel">Drag &amp; drop an audio file, or click to browse</span>
+            <span style="font-size:.72rem">WAV · MP3 · OGG · M4A · FLAC</span>
+            <input type="file" id="audioFileInput" accept="audio/*" />
+          </div>
+        </div>
+
+        <!-- Record panel -->
+        <div id="src-record" style="display:none">
+          <div class="record-panel">
+            <canvas class="record-visualizer" id="visualizer"></canvas>
+            <div class="record-controls">
+              <button class="btn btn-danger" id="recordBtn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg>
+                Start recording
+              </button>
+              <span class="record-timer" id="recordTimer" style="display:none">
+                <span class="rec-dot"></span><span id="timerDisplay">0:00</span>
+              </span>
+            </div>
+            <audio id="recordedAudio" controls style="width:100%;display:none"></audio>
+          </div>
+        </div>
+
+        <div style="margin-top:1.25rem">
+          <button class="btn btn-primary" id="saveVoiceBtn" style="width:100%">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            Save voice
+          </button>
+        </div>
+      </div>
+
+    </div><!-- /tab-voices -->
+
+  </main>
+</div>
+
+<!-- Toast container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+// ── Theme ─────────────────────────────────────────────────────────────
+const html = document.documentElement;
+const savedTheme = localStorage.getItem("theme") || "light";
+html.setAttribute("data-theme", savedTheme);
+updateThemeUI(savedTheme);
+
+document.getElementById("themeToggle").addEventListener("click", () => {
+  const next = html.getAttribute("data-theme") === "dark" ? "light" : "dark";
+  html.setAttribute("data-theme", next);
+  localStorage.setItem("theme", next);
+  updateThemeUI(next);
+});
+
+function updateThemeUI(theme) {
+  const isDark = theme === "dark";
+  document.getElementById("themeIcon").textContent  = isDark ? "☀️" : "🌙";
+  document.getElementById("themeLabel").textContent = isDark ? "Light" : "Dark";
+}
+
+// ── Tabs ──────────────────────────────────────────────────────────────
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+  });
+});
+
+// ── Source tabs (upload/record) ───────────────────────────────────────
+document.querySelectorAll(".src-tab").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".src-tab").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("src-upload").style.display = btn.dataset.src === "upload" ? "" : "none";
+    document.getElementById("src-record").style.display = btn.dataset.src === "record" ? "" : "none";
+  });
+});
+
+// ── Toast ─────────────────────────────────────────────────────────────
+function toast(msg, type = "info", duration = 3500) {
+  const el = document.createElement("div");
+  el.className = `toast ${type}`;
+  const icon = type === "success" ? "✅" : type === "error" ? "❌" : "ℹ️";
+  el.innerHTML = `<span>${icon}</span><span>${msg}</span>`;
+  document.getElementById("toastContainer").appendChild(el);
+  setTimeout(() => {
+    el.style.animation = "fadeOut .3s ease forwards";
+    setTimeout(() => el.remove(), 320);
+  }, duration);
+}
+
+// ── Slider values ─────────────────────────────────────────────────────
+function bindSlider(id, valId) {
+  const sl = document.getElementById(id);
+  const vl = document.getElementById(valId);
+  vl.textContent = parseFloat(sl.value).toFixed(2);
+  sl.addEventListener("input", () => { vl.textContent = parseFloat(sl.value).toFixed(2); });
+}
+bindSlider("exaggeration", "exagVal");
+bindSlider("cfgWeight", "cfgVal");
+
+// ── Char counter ──────────────────────────────────────────────────────
+document.getElementById("ttsText").addEventListener("input", function() {
+  document.getElementById("charCount").textContent = this.value.length;
+});
+
+// ── Voice list ────────────────────────────────────────────────────────
+let voices = [];
+
+async function loadVoices() {
+  try {
+    const res = await fetch("/profiles");
+    if (!res.ok) return;
+    voices = await res.json();
+    renderVoiceList();
+    renderVoiceSelect();
+  } catch (e) {
+    console.warn("Could not load voices:", e);
+  }
+}
+
+function renderVoiceList() {
+  const list  = document.getElementById("voiceList");
+  const empty = document.getElementById("voiceEmpty");
+  const count = document.getElementById("voiceCount");
+  count.textContent = voices.length;
+
+  list.querySelectorAll(".voice-card").forEach(c => c.remove());
+
+  if (voices.length === 0) {
+    empty.style.display = "";
+    return;
+  }
+  empty.style.display = "none";
+
+  voices.forEach(v => {
+    const card = document.createElement("div");
+    card.className = "voice-card";
+    card.dataset.id = v.id;
+    const initial = (v.name || "?")[0].toUpperCase();
+    card.innerHTML = `
+      <div class="voice-avatar">${initial}</div>
+      <div class="voice-info">
+        <div class="voice-name">${escHtml(v.name)}</div>
+        <div class="voice-lang">${escHtml(v.language)}</div>
+      </div>
+      <span class="badge">${v.reference_audio_path ? "✓" : "—"}</span>`;
+    card.addEventListener("click", () => {
+      document.querySelectorAll(".voice-card").forEach(c => c.classList.remove("selected"));
+      card.classList.add("selected");
+      document.getElementById("ttsVoice").value = v.id;
+      // switch to generate tab
+      document.querySelector('[data-tab="generate"]').click();
+    });
+    list.appendChild(card);
+  });
+}
+
+function renderVoiceSelect() {
+  const sel = document.getElementById("ttsVoice");
+  sel.innerHTML = '<option value="">— Default voice —</option>';
+  voices.forEach(v => {
+    const opt = document.createElement("option");
+    opt.value = v.id;
+    opt.textContent = v.name + " (" + v.language + ")";
+    sel.appendChild(opt);
+  });
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+loadVoices();
+
+// ── Progress simulation ───────────────────────────────────────────────
+const STAGES = [
+  { pct: 12, label: "Loading model…" },
+  { pct: 28, label: "Tokenising text…" },
+  { pct: 48, label: "Generating mel-spectrogram…" },
+  { pct: 68, label: "Running vocoders…" },
+  { pct: 85, label: "Post-processing…" },
+  { pct: 95, label: "Encoding audio…" },
+];
+
+let progressInterval = null;
+let stageIdx = 0;
+let abortController = null;
+
+function startProgress() {
+  const wrap = document.getElementById("progressWrap");
+  const bar  = document.getElementById("progressBar");
+  wrap.classList.add("visible");
+  setProgress(0, "Initialising…");
+  stageIdx = 0;
+  progressInterval = setInterval(() => {
+    if (stageIdx < STAGES.length) {
+      const s = STAGES[stageIdx++];
+      setProgress(s.pct, s.label);
+    } else {
+      // pulse slowly near 95 while waiting
+      const cur = parseFloat(bar.style.width) || 95;
+      if (cur < 97) setProgress(cur + 0.3, "Finishing up…");
+    }
+  }, 600);
+}
+
+function setProgress(pct, label) {
+  document.getElementById("progressBar").style.width = pct + "%";
+  document.getElementById("progressStatus").textContent = label;
+  document.getElementById("progressPct").textContent = Math.round(pct) + "%";
+}
+
+function finishProgress(success) {
+  clearInterval(progressInterval);
+  progressInterval = null;
+  if (success) {
+    setProgress(100, "Done!");
+    setTimeout(() => document.getElementById("progressWrap").classList.remove("visible"), 1400);
+  } else {
+    setProgress(0, "");
+    document.getElementById("progressWrap").classList.remove("visible");
+  }
+}
+
+// ── Generate speech ───────────────────────────────────────────────────
+document.getElementById("generateBtn").addEventListener("click", async () => {
+  const text = document.getElementById("ttsText").value.trim();
+  if (!text) { toast("Please enter some text first.", "error"); return; }
+
+  const voiceId   = document.getElementById("ttsVoice").value;
+  const format    = document.getElementById("ttsFormat").value;
+  const exag      = parseFloat(document.getElementById("exaggeration").value);
+  const cfg       = parseFloat(document.getElementById("cfgWeight").value);
+
+  const generateBtn = document.getElementById("generateBtn");
+  const cancelBtn   = document.getElementById("cancelBtn");
+  generateBtn.disabled = true;
+  cancelBtn.style.display = "";
+
+  startProgress();
+  document.getElementById("audioResult").classList.remove("visible");
+
+  abortController = new AbortController();
+
+  try {
+    const payload = {
+      text,
+      format,
+      exaggeration: exag,
+      cfg_weight: cfg,
+      voice_profile_id: voiceId ? parseInt(voiceId) : null,
+    };
+    const res = await fetch("/audio/speech", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: abortController.signal,
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      finishProgress(false);
+      toast("Generation failed: " + err, "error", 5000);
+      return;
+    }
+
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const player = document.getElementById("audioPlayer");
+    player.src = url;
+
+    const dl = document.getElementById("downloadLink");
+    dl.href = url;
+    dl.download = "speech." + format;
+
+    document.getElementById("audioResult").classList.add("visible");
+    finishProgress(true);
+    toast("Audio generated!", "success");
+    player.play();
+  } catch (e) {
+    if (e.name === "AbortError") {
+      finishProgress(false);
+      toast("Cancelled.", "info");
+    } else {
+      finishProgress(false);
+      toast("Unexpected error: " + e.message, "error", 5000);
+    }
+  } finally {
+    generateBtn.disabled = false;
+    cancelBtn.style.display = "none";
+    abortController = null;
+  }
+});
+
+document.getElementById("cancelBtn").addEventListener("click", () => {
+  if (abortController) abortController.abort();
+});
+
+// ── Drop zone ─────────────────────────────────────────────────────────
+let chosenFile = null;
+const dropZone  = document.getElementById("dropZone");
+const fileInput = document.getElementById("audioFileInput");
+
+dropZone.addEventListener("click", () => fileInput.click());
+dropZone.addEventListener("dragover", e => { e.preventDefault(); dropZone.classList.add("dragover"); });
+dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
+dropZone.addEventListener("drop", e => {
+  e.preventDefault();
+  dropZone.classList.remove("dragover");
+  const f = e.dataTransfer.files[0];
+  if (f) setChosenFile(f);
+});
+fileInput.addEventListener("change", () => {
+  if (fileInput.files[0]) setChosenFile(fileInput.files[0]);
+});
+
+function setChosenFile(f) {
+  chosenFile = f;
+  document.getElementById("dropLabel").innerHTML = `<span class="file-chosen">📎 ${escHtml(f.name)}</span>`;
+}
+
+// ── Recording ─────────────────────────────────────────────────────────
+let mediaRecorder = null;
+let recordedChunks = [];
+let recordedBlob = null;
+let timerInterval = null;
+let recordStart = 0;
+
+const recordBtn    = document.getElementById("recordBtn");
+const recordTimer  = document.getElementById("recordTimer");
+const timerDisplay = document.getElementById("timerDisplay");
+const recAudio     = document.getElementById("recordedAudio");
+const canvas       = document.getElementById("visualizer");
+const ctx2d        = canvas.getContext("2d");
+let analyser = null, animFrame = null;
+
+recordBtn.addEventListener("click", async () => {
+  if (mediaRecorder && mediaRecorder.state === "recording") {
+    // Stop
+    mediaRecorder.stop();
+    clearInterval(timerInterval);
+    cancelAnimationFrame(animFrame);
+    recordBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg> Start recording`;
+    recordBtn.classList.remove("btn-success");
+    recordBtn.classList.add("btn-danger");
+    recordTimer.style.display = "none";
+    drawIdle();
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const source   = audioCtx.createMediaStreamSource(stream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+    drawVisualizer();
+
+    recordedChunks = [];
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
+    mediaRecorder.onstop = () => {
+      recordedBlob = new Blob(recordedChunks, { type: "audio/webm" });
+      const url = URL.createObjectURL(recordedBlob);
+      recAudio.src = url;
+      recAudio.style.display = "";
+      stream.getTracks().forEach(t => t.stop());
+      audioCtx.close();
+    };
+    mediaRecorder.start();
+
+    recordStart = Date.now();
+    timerInterval = setInterval(() => {
+      const s = Math.floor((Date.now() - recordStart) / 1000);
+      timerDisplay.textContent = Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+    }, 500);
+
+    recordBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="6" y="6" width="12" height="12"/></svg> Stop recording`;
+    recordBtn.classList.remove("btn-danger");
+    recordBtn.classList.add("btn-success");
+    recordTimer.style.display = "";
+  } catch(e) {
+    toast("Microphone access denied: " + e.message, "error");
+  }
+});
+
+function drawVisualizer() {
+  const buf = new Uint8Array(analyser.frequencyBinCount);
+  function loop() {
+    animFrame = requestAnimationFrame(loop);
+    analyser.getByteFrequencyData(buf);
+    const w = canvas.width  = canvas.offsetWidth;
+    const h = canvas.height = canvas.offsetHeight;
+    ctx2d.clearRect(0, 0, w, h);
+    const bw = w / buf.length;
+    buf.forEach((v, i) => {
+      const bh = (v / 255) * h;
+      const hue = 240 + (i / buf.length) * 60;
+      ctx2d.fillStyle = `hsl(${hue},70%,55%)`;
+      ctx2d.fillRect(i * bw, h - bh, bw - 1, bh);
+    });
+  }
+  loop();
+}
+
+function drawIdle() {
+  const w = canvas.width  = canvas.offsetWidth;
+  const h = canvas.height = canvas.offsetHeight;
+  ctx2d.clearRect(0, 0, w, h);
+}
+
+// ── Save voice ────────────────────────────────────────────────────────
+document.getElementById("saveVoiceBtn").addEventListener("click", async () => {
+  const name = document.getElementById("voiceName").value.trim();
+  const lang = document.getElementById("voiceLang").value;
+  if (!name) { toast("Voice name is required.", "error"); return; }
+
+  const activeSrc = document.querySelector(".src-tab.active").dataset.src;
+  let audioSource = activeSrc === "upload" ? chosenFile
+    : activeSrc === "record" ? (recordedBlob ? new File([recordedBlob], "recording.webm", { type: "audio/webm" }) : null)
+    : null;
+
+  const btn = document.getElementById("saveVoiceBtn");
+  btn.disabled = true;
+  btn.textContent = "Saving…";
+
+  try {
+    // 1. Create profile
+    const createRes = await fetch("/profiles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, language: lang }),
+    });
+    if (!createRes.ok) {
+      const err = await createRes.json();
+      toast(err.detail || "Failed to create profile.", "error");
+      return;
+    }
+    const profile = await createRes.json();
+
+    // 2. Upload reference audio if provided
+    if (audioSource) {
+      const fd = new FormData();
+      fd.append("file", audioSource, audioSource.name);
+      const upRes = await fetch(`/profiles/${profile.id}/reference-audio`, {
+        method: "POST",
+        body: fd,
+      });
+      if (!upRes.ok) {
+        toast("Profile created but audio upload failed.", "error");
       }
+    }
 
-      async function createTrainingJob() {
-        const payload = {
-          dataset_path: document.getElementById("datasetPath").value,
-          base_model: document.getElementById("baseModel").value || "chatterbox-tts"
-        };
-        const res = await fetch("/training/jobs", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-        const data = await res.json();
-        document.getElementById("trainingResult").textContent = JSON.stringify(data, null, 2);
-      }
-
-      async function createSpeech() {
-        const payload = {
-          text: document.getElementById("ttsText").value,
-          voice_profile_id: document.getElementById("ttsVoiceId").value ? Number(document.getElementById("ttsVoiceId").value) : null
-        };
-        const res = await fetch("/audio/speech", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-        if (!res.ok) {
-          const data = await res.text();
-          document.getElementById("ttsResult").textContent = data;
-          return;
-        }
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        document.getElementById("audioPlayer").src = url;
-        document.getElementById("ttsResult").textContent = "Generated speech.wav";
-      }
-    </script>
-  </body>
+    toast(`Voice "${name}" saved!`, "success");
+    document.getElementById("voiceName").value = "";
+    chosenFile = null;
+    recordedBlob = null;
+    recAudio.style.display = "none";
+    recAudio.src = "";
+    document.getElementById("dropLabel").textContent = "Drag & drop an audio file, or click to browse";
+    await loadVoices();
+  } catch(e) {
+    toast("Error: " + e.message, "error", 5000);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save voice`;
+  }
+});
+</script>
+</body>
 </html>
 

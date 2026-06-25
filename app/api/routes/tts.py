@@ -19,7 +19,12 @@ def create_speech(payload: TTSRequest, session: Session = Depends(get_session)):
             raise HTTPException(status_code=404, detail="Voice profile not found.")
         voice_prompt = profile.reference_audio_path or None
 
-    output_path = chatterbox_service.synthesize(payload.text, voice_prompt)
+    output_path = chatterbox_service.synthesize(
+        payload.text,
+        voice_prompt,
+        exaggeration=payload.exaggeration,
+        cfg_weight=payload.cfg_weight,
+    )
     return FileResponse(path=output_path, media_type="audio/wav", filename="speech.wav")
 
 

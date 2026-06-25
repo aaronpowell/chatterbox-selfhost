@@ -1,5 +1,6 @@
 #:sdk Aspire.AppHost.Sdk@13.3.1
 #:package Aspire.Hosting.Redis@13.4.6
+#:package Aspire.Hosting.Python@13.4.6
 
 var builder = DistributedApplication.CreateBuilder(args);
 
@@ -7,17 +8,17 @@ var builder = DistributedApplication.CreateBuilder(args);
 var redis = builder.AddRedis("redis")
     .WithRedisCommander();
 
-// Python FastAPI application
-var api = builder.AddExecutable("api", "python", "../")
-    .WithArgs(["-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"])
-    .WithHttpEndpoint(targetPort: 8000, name: "http")
+// Python FastAPI application — AddUvicornApp manages the venv and runs uvicorn
+var api = builder.AddUvicornApp("api", ".", "app.main:app")
+    .WithHttpEndpoint(port: 8000, env: "UVICORN_PORT")
+    .WithHttpHealthCheck("/health")
+    .WithEnvironment("UVICORN_RELOAD", "true")
     .WithReference(redis)
     .WaitFor(redis)
     .WithUrl("/admin", "Admin Portal");
 
-// Python worker service
-builder.AddExecutable("worker", "python", "../")
-    .WithArgs(["-m", "worker.worker"])
+// Python worker service — AddPythonModule runs `python -m worker.worker`
+builder.AddPythonModule("worker", ".", "worker.worker")
     .WithReference(redis)
     .WaitFor(redis);
 

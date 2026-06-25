@@ -8,10 +8,9 @@ var builder = DistributedApplication.CreateBuilder(args);
 var redis = builder.AddRedis("redis")
     .WithRedisCommander();
 
-// Python FastAPI application — AddUvicornApp manages the venv and runs uvicorn
+// Python FastAPI application — AddUvicornApp uses uv to sync deps and run uvicorn
 var api = builder.AddUvicornApp("api", ".", "app.main:app")
     .WithUv()
-    .WithVirtualEnvironment(".venv-api")
     .WithHttpEndpoint(port: 8000, env: "UVICORN_PORT")
     .WithHttpHealthCheck("/health")
     .WithEnvironment("UVICORN_RELOAD", "true")
@@ -19,11 +18,14 @@ var api = builder.AddUvicornApp("api", ".", "app.main:app")
     .WaitFor(redis)
     .WithUrl("/admin", "Admin Portal");
 
-// Python worker service — isolated venv mirrors independent container deployment
+// Python worker service. api and worker are one uv project (shared pyproject +
+// .venv); wait for the api to finish syncing so the two `uv sync` runs don't
+// race on the same environment. Deployment isolation is handled per-service by
+// the container images, not by separate dev venvs.
 builder.AddPythonModule("worker", ".", "worker.worker")
     .WithUv()
-    .WithVirtualEnvironment(".venv-worker")
     .WithReference(redis)
-    .WaitFor(redis);
+    .WaitFor(redis)
+    .WaitFor(api);
 
 builder.Build().Run();

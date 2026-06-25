@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ app_name }} admin</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 2rem; max-width: 900px; }
+      section { margin-bottom: 2rem; padding: 1rem; border: 1px solid #ccc; border-radius: 8px; }
+      input, button, textarea { margin: 0.25rem 0; width: 100%; }
+      button { width: auto; padding: 0.5rem 1rem; }
+      pre { background: #f6f8fa; padding: 0.75rem; overflow: auto; }
+    </style>
+  </head>
+  <body>
+    <h1>{{ app_name }} admin</h1>
+
+    <section>
+      <h2>Create profile</h2>
+      <input id="profileName" placeholder="Profile name" />
+      <input id="profileLang" placeholder="Language (en)" value="en" />
+      <button onclick="createProfile()">Create</button>
+      <pre id="profileResult"></pre>
+    </section>
+
+    <section>
+      <h2>Create training job</h2>
+      <input id="datasetPath" placeholder="Dataset path" />
+      <input id="baseModel" placeholder="Base model" value="chatterbox-tts" />
+      <button onclick="createTrainingJob()">Start training</button>
+      <pre id="trainingResult"></pre>
+    </section>
+
+    <section>
+      <h2>Synthesize preview</h2>
+      <textarea id="ttsText" rows="4" placeholder="Text to synthesize"></textarea>
+      <input id="ttsVoiceId" placeholder="Voice profile ID (optional)" />
+      <button onclick="createSpeech()">Generate</button>
+      <pre id="ttsResult"></pre>
+      <audio id="audioPlayer" controls></audio>
+    </section>
+
+    <script>
+      async function createProfile() {
+        const payload = {
+          name: document.getElementById("profileName").value,
+          language: document.getElementById("profileLang").value || "en"
+        };
+        const res = await fetch("/profiles", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        document.getElementById("profileResult").textContent = JSON.stringify(data, null, 2);
+      }
+
+      async function createTrainingJob() {
+        const payload = {
+          dataset_path: document.getElementById("datasetPath").value,
+          base_model: document.getElementById("baseModel").value || "chatterbox-tts"
+        };
+        const res = await fetch("/training/jobs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        document.getElementById("trainingResult").textContent = JSON.stringify(data, null, 2);
+      }
+
+      async function createSpeech() {
+        const payload = {
+          text: document.getElementById("ttsText").value,
+          voice_profile_id: document.getElementById("ttsVoiceId").value ? Number(document.getElementById("ttsVoiceId").value) : null
+        };
+        const res = await fetch("/audio/speech", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) {
+          const data = await res.text();
+          document.getElementById("ttsResult").textContent = data;
+          return;
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        document.getElementById("audioPlayer").src = url;
+        document.getElementById("ttsResult").textContent = "Generated speech.wav";
+      }
+    </script>
+  </body>
+</html>
+

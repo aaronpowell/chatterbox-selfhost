@@ -1018,13 +1018,22 @@ document.getElementById("generateBtn").addEventListener("click", async () => {
     });
 
     if (!res.ok) {
-      const err = await res.text();
+      let msg = res.statusText;
+      try {
+        const data = await res.json();
+        msg = data.detail || JSON.stringify(data);
+      } catch { try { msg = await res.text(); } catch {} }
       finishProgress(false);
-      toast("Generation failed: " + err, "error", 5000);
+      toast(msg, "error", 7000);
       return;
     }
 
     const blob = await res.blob();
+    if (!blob || blob.size === 0) {
+      finishProgress(false);
+      toast("The server returned empty audio — the speech model may not be installed.", "error", 7000);
+      return;
+    }
     const url  = URL.createObjectURL(blob);
     const player = document.getElementById("audioPlayer");
     player.src = url;

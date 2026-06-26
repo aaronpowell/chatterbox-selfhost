@@ -1,8 +1,17 @@
+#:package Aspire.Hosting.Docker@13.4.6
 #:sdk Aspire.AppHost.Sdk@13.3.1
 #:package Aspire.Hosting.Redis@13.4.6
 #:package Aspire.Hosting.Python@13.4.6
 
 var builder = DistributedApplication.CreateBuilder(args);
+
+builder.AddDockerComposeEnvironment("compose");
+
+#pragma warning disable ASPIRECOMPUTE003
+var registry = builder.AddContainerRegistry(
+    "ghcr",
+    builder.AddParameterFromConfiguration("registryEndpoint", "REGISTRY_ENDPOINT"),
+    builder.AddParameterFromConfiguration("registryRepository", "REGISTRY_REPOSITORY"));
 
 // Redis cache
 var redis = builder.AddRedis("redis")
@@ -16,6 +25,7 @@ var api = builder.AddUvicornApp("api", ".", "app.main:app")
     .WithHttpEndpoint(port: 8000, env: "UVICORN_PORT")
     .WithHttpHealthCheck("/health")
     .WithEnvironment("UVICORN_RELOAD", "true")
+    .WithContainerRegistry(registry)
     .WithReference(redis)
     .WaitFor(redis)
     .WithUrl("/admin", "Admin Portal");
@@ -27,8 +37,10 @@ var api = builder.AddUvicornApp("api", ".", "app.main:app")
 // isolation is handled per-service by the container images, not by dev venvs.
 builder.AddPythonModule("worker", ".", "worker.worker")
     .WithUv(args: ["sync", "--extra", "tts"])
+    .WithContainerRegistry(registry)
     .WithReference(redis)
     .WaitFor(redis)
     .WaitFor(api);
+#pragma warning restore ASPIRECOMPUTE003
 
 builder.Build().Run();

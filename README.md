@@ -54,22 +54,22 @@ Observability-related settings:
 
 ## Docker
 
-CPU:
+Generate Compose artifacts from the AppHost model:
 
 ```bash
-docker build -f Dockerfile.cpu -t ghcr.io/aaronpowell/chatterbox-selfhost:cpu .
+aspire publish --non-interactive
 ```
 
-CUDA:
+Build and deploy locally with the Aspire Docker Compose pipeline:
 
 ```bash
-docker build -f Dockerfile.cuda -t ghcr.io/aaronpowell/chatterbox-selfhost:cuda .
+aspire deploy --non-interactive
 ```
 
-Compose:
+Build and push app images to GHCR from the AppHost model:
 
 ```bash
-docker compose up -d
+REGISTRY_ENDPOINT=ghcr.io REGISTRY_REPOSITORY=aaronpowell/chatterbox-selfhost aspire do push --non-interactive
 ```
 
 ## Notes

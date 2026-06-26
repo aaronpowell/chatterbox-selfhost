@@ -45,6 +45,13 @@ Open:
 
 Copy `.env.example` to `.env` and adjust values.
 
+Observability-related settings:
+
+- `LOG_LEVEL` controls application and worker verbosity.
+- `ENABLE_TRACING` enables OpenTelemetry span creation for API requests, database work, queue handoffs, and worker execution.
+- `OTEL_EXPORTER_OTLP_ENDPOINT` points at your OTLP HTTP traces endpoint.
+- `SEQ_URI` is also supported as a shortcut; traces will be exported to `${SEQ_URI}/ingest/otlp/v1/traces`.
+
 ## Docker
 
 Generate Compose artifacts from the AppHost model:

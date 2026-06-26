@@ -6,7 +6,6 @@ import wave
 from types import ModuleType
 from unittest.mock import MagicMock, patch
 
-
 def _make_wav_bytes() -> bytes:
     """Return minimal valid PCM WAV bytes."""
     buf = io.BytesIO()

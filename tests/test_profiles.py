@@ -6,9 +6,6 @@ import wave
 from types import ModuleType
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-
 def _make_wav_bytes() -> bytes:
     """Return minimal valid PCM WAV bytes."""
     buf = io.BytesIO()
@@ -91,4 +88,3 @@ class TestReferenceAudioValidation:
                 files={"file": ("voice.mp3", _make_mp3_bytes(), "audio/mpeg")},
             )
             assert response.status_code == 200
-

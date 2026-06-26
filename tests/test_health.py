@@ -8,4 +8,4 @@ def test_health_ok():
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
-
+    assert response.headers["x-request-id"]

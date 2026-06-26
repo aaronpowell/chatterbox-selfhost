@@ -1,5 +1,6 @@
 import importlib.util
 import io
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -7,9 +8,12 @@ from sqlmodel import Session, select
 
 from app.db import get_session
 from app.models import VoiceProfile
+from app.observability import get_tracer
 from app.schemas import VoiceProfileCreate
 
 router = APIRouter(prefix="/profiles", tags=["profiles"])
+logger = logging.getLogger(__name__)
+tracer = get_tracer(__name__)
 
 _SOUNDFILE_AVAILABLE = importlib.util.find_spec("soundfile") is not None
 
@@ -33,6 +37,7 @@ def _validate_audio_format(content: bytes) -> None:
     try:
         sf.info(io.BytesIO(content))
     except Exception as exc:
+        logger.warning("Rejected reference audio upload because libsndfile could not read the file.", exc_info=exc)
         raise HTTPException(status_code=422, detail=_UNSUPPORTED_FORMAT_DETAIL) from exc
 
 
@@ -43,18 +48,23 @@ def list_profiles(session: Session = Depends(get_session)):
 
 @router.post("")
 def create_profile(payload: VoiceProfileCreate, session: Session = Depends(get_session)):
-    existing = session.exec(select(VoiceProfile).where(VoiceProfile.name == payload.name)).first()
-    if existing:
-        raise HTTPException(status_code=409, detail="Profile name already exists.")
-    profile = VoiceProfile(
-        name=payload.name,
-        language=payload.language,
-        reference_audio_path="",
-    )
-    session.add(profile)
-    session.commit()
-    session.refresh(profile)
-    return profile
+    with tracer.start_as_current_span("profiles.create_profile") as span:
+        existing = session.exec(select(VoiceProfile).where(VoiceProfile.name == payload.name)).first()
+        if existing:
+            raise HTTPException(status_code=409, detail="Profile name already exists.")
+        profile = VoiceProfile(
+            name=payload.name,
+            language=payload.language,
+            reference_audio_path="",
+        )
+        session.add(profile)
+        session.commit()
+        session.refresh(profile)
+
+        span.set_attribute("voice_profile.id", profile.id or 0)
+        span.set_attribute("voice_profile.language", profile.language)
+        logger.info("Created voice profile %s (%s)", profile.id, profile.name)
+        return profile
 
 
 @router.post("/{profile_id}/reference-audio")
@@ -63,21 +73,26 @@ async def upload_reference_audio(
     file: UploadFile = File(...),
     session: Session = Depends(get_session),
 ):
-    profile = session.get(VoiceProfile, profile_id)
-    if not profile:
-        raise HTTPException(status_code=404, detail="Profile not found.")
+    with tracer.start_as_current_span("profiles.upload_reference_audio") as span:
+        span.set_attribute("voice_profile.id", profile_id)
+        span.set_attribute("upload.filename", file.filename or "")
 
-    content = await file.read()
-    _validate_audio_format(content)
+        profile = session.get(VoiceProfile, profile_id)
+        if not profile:
+            raise HTTPException(status_code=404, detail="Profile not found.")
 
-    target_dir = Path("audio") / "profiles" / str(profile_id)
-    target_dir.mkdir(parents=True, exist_ok=True)
-    target_file = target_dir / file.filename
-    target_file.write_bytes(content)
+        content = await file.read()
+        span.set_attribute("upload.size_bytes", len(content))
+        _validate_audio_format(content)
 
-    profile.reference_audio_path = str(target_file)
-    session.add(profile)
-    session.commit()
-    session.refresh(profile)
-    return profile
+        target_dir = Path("audio") / "profiles" / str(profile_id)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target_file = target_dir / file.filename
+        target_file.write_bytes(content)
 
+        profile.reference_audio_path = str(target_file)
+        session.add(profile)
+        session.commit()
+        session.refresh(profile)
+        logger.info("Stored reference audio for voice profile %s at %s", profile_id, target_file)
+        return profile

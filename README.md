@@ -51,6 +51,9 @@ Observability-related settings:
 - `ENABLE_TRACING` enables OpenTelemetry span creation for API requests, database work, queue handoffs, and worker execution.
 - `OTEL_EXPORTER_OTLP_ENDPOINT` points at your OTLP HTTP traces endpoint.
 - `SEQ_URI` is also supported as a shortcut; traces will be exported to `${SEQ_URI}/ingest/otlp/v1/traces`.
+- `TTS_DEVICE` controls model device selection: `auto` (default), `cpu`, or `cuda`.
+  - `auto` uses CUDA when available, otherwise CPU.
+  - On Windows for CUDA, this repo configures `uv` to install `torch`/`torchaudio` from the PyTorch CUDA 12.6 wheel index.
 
 ## Docker
 

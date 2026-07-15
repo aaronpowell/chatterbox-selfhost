@@ -1,6 +1,7 @@
 import importlib.util
 import io
 import logging
+import subprocess
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -19,9 +20,54 @@ _SOUNDFILE_AVAILABLE = importlib.util.find_spec("soundfile") is not None
 
 _UNSUPPORTED_FORMAT_DETAIL = (
     "Unsupported audio format. The TTS model requires a format readable by libsndfile "
-    "(e.g. WAV, FLAC, OGG). MP3, AAC, M4A, and other compressed formats are not supported. "
+    "(e.g. WAV, FLAC, OGG). MP3, AAC, and other compressed formats are not supported. "
     "Convert first with: ffmpeg -i input.mp3 -ar 22050 -ac 1 output.wav"
 )
+
+_M4A_CONTENT_TYPES = {
+    "audio/mp4",
+    "audio/x-m4a",
+    "audio/m4a",
+}
+
+
+def _is_m4a_upload(filename: str, content_type: str | None) -> bool:
+    return filename.lower().endswith(".m4a") or (content_type or "").lower() in _M4A_CONTENT_TYPES
+
+
+def _convert_m4a_to_wav(content: bytes) -> bytes:
+    try:
+        result = subprocess.run(
+            [
+                "ffmpeg",
+                "-v",
+                "error",
+                "-i",
+                "pipe:0",
+                "-ar",
+                "22050",
+                "-ac",
+                "1",
+                "-f",
+                "wav",
+                "pipe:1",
+            ],
+            input=content,
+            capture_output=True,
+            check=True,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="M4A uploads require ffmpeg to be installed on the server.",
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        logger.warning("Failed to transcode M4A upload with ffmpeg.", exc_info=exc)
+        raise HTTPException(
+            status_code=422,
+            detail="Could not process M4A upload. Please re-encode the file to WAV and try again.",
+        ) from exc
+    return result.stdout
 
 
 def _validate_audio_format(content: bytes) -> None:
@@ -83,11 +129,20 @@ async def upload_reference_audio(
 
         content = await file.read()
         span.set_attribute("upload.size_bytes", len(content))
-        _validate_audio_format(content)
+        filename = file.filename or "reference-audio.wav"
+        if _SOUNDFILE_AVAILABLE:
+            try:
+                _validate_audio_format(content)
+            except HTTPException:
+                if not _is_m4a_upload(filename, file.content_type):
+                    raise
+                content = _convert_m4a_to_wav(content)
+                filename = f"{Path(filename).stem}.wav"
+                _validate_audio_format(content)
 
         target_dir = Path("audio") / "profiles" / str(profile_id)
         target_dir.mkdir(parents=True, exist_ok=True)
-        target_file = target_dir / file.filename
+        target_file = target_dir / filename
         target_file.write_bytes(content)
 
         profile.reference_audio_path = str(target_file)

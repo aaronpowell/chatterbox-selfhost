@@ -169,6 +169,29 @@
       font-size: .75rem;
       color: var(--text-muted);
     }
+    .voice-actions {
+      display: flex;
+      align-items: center;
+      gap: .4rem;
+    }
+    .voice-delete {
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-muted);
+      border-radius: var(--radius-sm);
+      width: 28px;
+      height: 28px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background var(--transition), border-color var(--transition), color var(--transition);
+    }
+    .voice-delete:hover {
+      background: var(--surface-2);
+      border-color: #ef4444;
+      color: #ef4444;
+    }
     .voice-empty {
       text-align: center;
       padding: 2rem 1rem;
@@ -405,6 +428,10 @@
       outline: none;
     }
     .audio-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+    .audio-meta {
+      font-size: .8rem;
+      color: var(--text-muted);
+    }
 
     /* ── Toast ───────────────────────────────────────────────────── */
     .toast-container {
@@ -681,6 +708,7 @@
       <!-- Result -->
       <div class="audio-result" id="audioResult">
         <div class="card-title" style="margin-bottom:.25rem">Generated audio</div>
+        <div class="audio-meta" id="generationTiming"></div>
         <audio id="audioPlayer" controls></audio>
         <div class="audio-actions">
           <a class="btn btn-secondary btn-sm" id="downloadLink" download="speech.wav">
@@ -899,10 +927,51 @@ function renderVoiceList() {
         <div class="voice-name">${escHtml(v.name)}</div>
         <div class="voice-lang">${escHtml(v.language)}</div>
       </div>
-      <span class="badge">${v.reference_audio_path ? "✓" : "—"}</span>`;
+      <div class="voice-actions">
+        <span class="badge">${v.reference_audio_path ? "✓" : "—"}</span>
+        <button class="voice-delete" title="Delete voice" aria-label="Delete ${escHtml(v.name)}">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+            <path d="M10 11v6M14 11v6"/>
+            <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+          </svg>
+        </button>
+      </div>`;
     card.addEventListener("click", () => selectVoice(card, v.id));
+    card.querySelector(".voice-delete").addEventListener("click", async (event) => {
+      event.stopPropagation();
+      await deleteVoice(v.id, v.name);
+    });
     list.appendChild(card);
   });
+}
+
+async function deleteVoice(id, name) {
+  const confirmed = window.confirm(`Delete voice "${name}"? This will remove its reference audio.`);
+  if (!confirmed) return;
+
+  try {
+    const res = await fetch(`/profiles/${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      let msg = "Failed to delete voice.";
+      try {
+        const data = await res.json();
+        msg = data.detail || msg;
+      } catch {}
+      toast(msg, "error", 5000);
+      return;
+    }
+
+    const selectedVoice = document.getElementById("ttsVoice").value;
+    if (String(id) === selectedVoice) {
+      document.getElementById("ttsVoice").value = "";
+    }
+    await loadVoices();
+    toast(`Voice "${name}" deleted.`, "success");
+  } catch (e) {
+    toast("Error: " + e.message, "error", 5000);
+  }
 }
 
 function renderVoiceSelect() {
@@ -999,6 +1068,7 @@ document.getElementById("generateBtn").addEventListener("click", async () => {
 
   startProgress();
   document.getElementById("audioResult").classList.remove("visible");
+  document.getElementById("generationTiming").textContent = "";
 
   abortController = new AbortController();
 
@@ -1041,6 +1111,14 @@ document.getElementById("generateBtn").addEventListener("click", async () => {
     const dl = document.getElementById("downloadLink");
     dl.href = url;
     dl.download = "speech." + format;
+
+    const generationMs = Number(res.headers.get("X-Generation-Time-Ms"));
+    const timing = document.getElementById("generationTiming");
+    if (Number.isFinite(generationMs) && generationMs >= 0) {
+      timing.textContent = `Generated in ${(generationMs / 1000).toFixed(2)}s`;
+    } else {
+      timing.textContent = "";
+    }
 
     document.getElementById("audioResult").classList.add("visible");
     finishProgress(true);
@@ -1239,4 +1317,3 @@ document.getElementById("saveVoiceBtn").addEventListener("click", async () => {
 </script>
 </body>
 </html>
-

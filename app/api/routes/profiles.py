@@ -1,6 +1,7 @@
 import importlib.util
 import io
 import logging
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -23,6 +24,7 @@ _UNSUPPORTED_FORMAT_DETAIL = (
     "(e.g. WAV, FLAC, OGG). MP3, AAC, and other compressed formats are not supported. "
     "Convert first with: ffmpeg -i input.mp3 -ar 22050 -ac 1 output.wav"
 )
+_EMPTY_AUDIO_DETAIL = "Reference audio is empty. Upload a non-empty audio clip."
 
 _M4A_CONTENT_TYPES = {
     "audio/mp4",
@@ -81,10 +83,12 @@ def _validate_audio_format(content: bytes) -> None:
     import soundfile as sf  # type: ignore
 
     try:
-        sf.info(io.BytesIO(content))
+        info = sf.info(io.BytesIO(content))
     except Exception as exc:
         logger.warning("Rejected reference audio upload because libsndfile could not read the file.", exc_info=exc)
         raise HTTPException(status_code=422, detail=_UNSUPPORTED_FORMAT_DETAIL) from exc
+    if info.frames <= 0:
+        raise HTTPException(status_code=422, detail=_EMPTY_AUDIO_DETAIL)
 
 
 @router.get("")
@@ -151,3 +155,29 @@ async def upload_reference_audio(
         session.refresh(profile)
         logger.info("Stored reference audio for voice profile %s at %s", profile_id, target_file)
         return profile
+
+
+@router.delete("/{profile_id}")
+def delete_profile(profile_id: int, session: Session = Depends(get_session)):
+    with tracer.start_as_current_span("profiles.delete_profile") as span:
+        span.set_attribute("voice_profile.id", profile_id)
+
+        profile = session.get(VoiceProfile, profile_id)
+        if not profile:
+            raise HTTPException(status_code=404, detail="Profile not found.")
+
+        if profile.reference_audio_path:
+            reference_audio_path = Path(profile.reference_audio_path)
+            if reference_audio_path.exists():
+                reference_audio_path.unlink()
+
+        profile_audio_dir = Path("audio") / "profiles" / str(profile_id)
+        if profile_audio_dir.exists():
+            shutil.rmtree(profile_audio_dir)
+
+        profile_name = profile.name
+        session.delete(profile)
+        session.commit()
+
+        logger.info("Deleted voice profile %s (%s)", profile_id, profile_name)
+        return {"status": "deleted", "profile_id": profile_id}

@@ -1,5 +1,6 @@
 import logging
 import time
+import wave
 from pathlib import Path
 import importlib.util
 
@@ -25,6 +26,16 @@ def _validate_voice_prompt(path: str) -> None:
         raise HTTPException(status_code=422, detail="Voice profile reference audio file is missing.")
 
     if not _SOUNDFILE_AVAILABLE:
+        if prompt_path.suffix.lower() == ".wav":
+            try:
+                with wave.open(str(prompt_path), "rb") as wav_file:
+                    if wav_file.getnframes() <= 0:
+                        raise HTTPException(status_code=422, detail="Voice profile reference audio is empty. Upload a non-empty clip.")
+            except wave.Error as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Voice profile reference audio could not be read. Upload a valid WAV/FLAC/OGG clip.",
+                ) from exc
         return
 
     import soundfile as sf  # type: ignore

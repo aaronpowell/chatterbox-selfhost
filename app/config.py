@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -26,6 +28,10 @@ class Settings(BaseSettings):
     audio_storage_path: str = "./audio"
     model_storage_path: str = "./models"
     job_storage_path: str = "./data/jobs"
+    tts_device: Literal["auto", "cpu", "cuda"] = Field(
+        default="auto",
+        validation_alias=AliasChoices("TTS_DEVICE"),
+    )
 
     enable_auth: bool = False
     api_key: str = ""

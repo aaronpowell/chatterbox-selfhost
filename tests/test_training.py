@@ -1,10 +1,36 @@
+from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
 
 from sqlmodel import Session, SQLModel, create_engine
 
-from app.models import TrainingJob
+from app.models import SynthesisJob, TrainingJob, VoiceProfile
 from worker import tasks as worker_tasks
+
+
+def test_model_timestamps_default_to_utc():
+    models = [
+        VoiceProfile(name="voice", reference_audio_path="voice.wav"),
+        TrainingJob(dataset_path="dataset"),
+        SynthesisJob(text="hello"),
+    ]
+    for model in models:
+        assert model.created_at.utcoffset() == timedelta(0)
+        if hasattr(model, "updated_at"):
+            assert model.updated_at.utcoffset() == timedelta(0)
+
+
+def test_completed_training_job_can_be_promoted(client, db_session):
+    job = TrainingJob(dataset_path="dataset", status="completed", output_model_path="model")
+    db_session.add(job)
+    db_session.commit()
+    db_session.refresh(job)
+
+    response = client.post(f"/training/jobs/{job.id}/promote")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "promoted"
+    assert response.json()["model_path"] == "model"
 
 
 def test_create_training_job_enqueues_trace_context(client):

@@ -47,7 +47,11 @@ def create_speech(payload: TTSRequest, session: Session = Depends(get_session)):
                 cfg_weight=payload.cfg_weight,
             )
         except Exception as exc:  # noqa: BLE001 - surface synthesis/model-load failures to the client
-            logger.exception("Speech synthesis failed for voice_profile_id=%s", payload.voice_profile_id)
+            logger.exception(
+                "Speech synthesis failed: voice_profile_id=%s reference_audio=%s "
+                "text_length=%s error_type=%s",
+                payload.voice_profile_id, voice_prompt, len(payload.text), type(exc).__name__,
+            )
             raise HTTPException(status_code=500, detail=f"Speech synthesis failed: {exc}") from exc
 
         span.set_attribute("tts.output_path", output_path)

@@ -63,12 +63,36 @@ class ChatterboxService:
                 output_path.write_bytes(b"")
                 return str(output_path)
 
-            import torchaudio as ta  # type: ignore
+            stage = "import_audio_backend"
+            try:
+                import torchaudio as ta  # type: ignore
 
-            model = self._ensure_model()
-            span.set_attribute("tts.model.device", self._model_device or "unknown")
-            wav = model.generate(text, audio_prompt_path=voice_prompt_path, exaggeration=exaggeration, cfg_weight=cfg_weight)
-            ta.save(str(output_path), wav, model.sr)
+                stage = "load_model"
+                logger.info("Speech synthesis stage=%s", stage)
+                model = self._ensure_model()
+                span.set_attribute("tts.model.device", self._model_device or "unknown")
+
+                stage = "generate_audio"
+                logger.info(
+                    "Speech synthesis stage=%s device=%s reference_audio=%s text_length=%s",
+                    stage, self._model_device, voice_prompt_path, len(text),
+                )
+                wav = model.generate(
+                    text, audio_prompt_path=voice_prompt_path, exaggeration=exaggeration, cfg_weight=cfg_weight,
+                )
+
+                stage = "save_audio"
+                logger.info("Speech synthesis stage=%s output_path=%s sample_rate=%s", stage, output_path, model.sr)
+                ta.save(str(output_path), wav, model.sr)
+            except Exception:
+                # The API boundary logs the traceback; keep failure context here
+                # so it is available even when INFO logs are disabled.
+                logger.error(
+                    "Speech synthesis failed: stage=%s device=%s reference_audio=%s "
+                    "text_length=%s output_path=%s",
+                    stage, self._model_device, voice_prompt_path, len(text), output_path,
+                )
+                raise
             logger.info("Saved synthesized audio to %s", output_path)
             span.set_attribute("tts.output_path", str(output_path))
             return str(output_path)

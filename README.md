@@ -39,7 +39,7 @@ uvicorn app.main:app --reload
 Open:
 
 - API docs: `http://localhost:8000/docs`
-- Admin portal: `http://localhost:8000/admin`
+- Admin portal: `http://localhost:8000/` (redirects to `/admin`)
 
 ## Environment
 

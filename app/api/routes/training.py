@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -53,7 +53,7 @@ def promote_training_job(job_id: int, session: Session = Depends(get_session)):
         if job.status != "completed":
             raise HTTPException(status_code=409, detail="Training job is not completed yet.")
 
-        job.updated_at = datetime.utcnow()
+        job.updated_at = datetime.now(UTC)
         session.add(job)
         session.commit()
         session.refresh(job)

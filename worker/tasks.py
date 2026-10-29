@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 import logging
 from pathlib import Path
 import traceback
@@ -33,13 +33,13 @@ def run_training_job(training_job_id: int, trace_context: dict[str, str] | None 
                 logger.error("Training job %s was not found before execution started.", training_job_id)
                 return
             job.status = "running"
-            job.updated_at = datetime.utcnow()
+            job.updated_at = datetime.now(UTC)
             session.add(job)
             session.commit()
 
         logs_path = Path(settings.job_storage_path) / f"training-{training_job_id}.log"
         logs_path.parent.mkdir(parents=True, exist_ok=True)
-        _append_job_log(logs_path, f"[{datetime.now(timezone.utc).isoformat()}] Starting training job {training_job_id}\n")
+        _append_job_log(logs_path, f"[{datetime.now(UTC).isoformat()}] Starting training job {training_job_id}\n")
 
         try:
             output_model = run_finetune(training_job_id)
@@ -52,12 +52,12 @@ def run_training_job(training_job_id: int, trace_context: dict[str, str] | None 
                 job.status = "completed"
                 job.output_model_path = output_model
                 job.logs_path = str(logs_path)
-                job.updated_at = datetime.utcnow()
+                job.updated_at = datetime.now(UTC)
                 session.add(job)
                 session.commit()
             _append_job_log(
                 logs_path,
-                f"[{datetime.now(timezone.utc).isoformat()}] Training job completed. Output model: {output_model}\n",
+                f"[{datetime.now(UTC).isoformat()}] Training job completed. Output model: {output_model}\n",
             )
             logger.info("Training job %s completed with output model %s", training_job_id, output_model)
         except Exception as exc:
@@ -71,13 +71,13 @@ def run_training_job(training_job_id: int, trace_context: dict[str, str] | None 
                     return
                 job.status = "failed"
                 job.logs_path = str(logs_path)
-                job.updated_at = datetime.utcnow()
+                job.updated_at = datetime.now(UTC)
                 session.add(job)
                 session.commit()
             _append_job_log(
                 logs_path,
                 (
-                    f"[{datetime.now(timezone.utc).isoformat()}] Training failed: {exc}\n"
+                    f"[{datetime.now(UTC).isoformat()}] Training failed: {exc}\n"
                     f"{traceback.format_exc()}"
                 ),
             )

@@ -33,7 +33,7 @@ def run_training_job(training_job_id: int, trace_context: dict[str, str] | None 
                 logger.error("Training job %s was not found before execution started.", training_job_id)
                 return
             job.status = "running"
-            job.updated_at = datetime.utcnow()
+            job.updated_at = datetime.now(timezone.utc)
             session.add(job)
             session.commit()
 
@@ -52,7 +52,7 @@ def run_training_job(training_job_id: int, trace_context: dict[str, str] | None 
                 job.status = "completed"
                 job.output_model_path = output_model
                 job.logs_path = str(logs_path)
-                job.updated_at = datetime.utcnow()
+                job.updated_at = datetime.now(timezone.utc)
                 session.add(job)
                 session.commit()
             _append_job_log(
@@ -71,7 +71,7 @@ def run_training_job(training_job_id: int, trace_context: dict[str, str] | None 
                     return
                 job.status = "failed"
                 job.logs_path = str(logs_path)
-                job.updated_at = datetime.utcnow()
+                job.updated_at = datetime.now(timezone.utc)
                 session.add(job)
                 session.commit()
             _append_job_log(

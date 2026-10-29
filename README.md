@@ -55,6 +55,13 @@ Observability-related settings:
   - `auto` uses CUDA when available, otherwise CPU.
   - On Windows for CUDA, this repo configures `uv` to install `torch`/`torchaudio` from the PyTorch CUDA 12.6 wheel index.
 
+Speech synthesis failures log the failing stage (`import_audio_backend`, `load_model`,
+`generate_audio`, or `save_audio`), device, reference-audio path, text length, and
+output path at ERROR level, followed by the API's exception traceback and voice
+profile ID. INFO logs also show synthesis progress. Submitted text and audio
+contents are not included in these diagnostic fields. Use the response's
+`X-Request-ID` header to find the corresponding `request_id` in the logs.
+
 ## Docker
 
 Generate Compose artifacts from the AppHost model:

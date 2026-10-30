@@ -6,6 +6,7 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+  pull_request:
 
 env:
   REGISTRY_ENDPOINT: ghcr.io
@@ -13,6 +14,7 @@ env:
 
 jobs:
   build-and-push:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -36,3 +38,77 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push images via Aspire pipeline
         run: aspire do push --non-interactive
+
+  cpu-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/metadata-action@v5
+        id: metadata
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=sha,format=long,prefix=sha-,suffix=-cpu
+            type=ref,event=tag,suffix=-cpu
+            type=raw,value=cpu,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
+      - name: Build CPU image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.cpu
+          platforms: linux/amd64
+          load: true
+          tags: chatterbox-cpu:test
+          labels: ${{ steps.metadata.outputs.labels }}
+          cache-from: type=gha,scope=cpu
+          cache-to: type=gha,mode=max,scope=cpu
+      - name: Verify CPU speech dependencies, API and worker
+        run: |
+          docker run --rm --entrypoint python \
+            -v "$PWD/tests/smoke_cpu.py:/smoke_cpu.py:ro" \
+            chatterbox-cpu:test /smoke_cpu.py
+      - name: Verify container startup commands
+        run: |
+          trap 'docker logs cpu-api; docker logs cpu-worker; docker rm -f cpu-api cpu-worker cpu-redis; docker network rm cpu-smoke' EXIT
+          docker network create cpu-smoke
+          docker run -d --name cpu-redis --network cpu-smoke redis:7-alpine
+          for attempt in {1..30}; do
+            if docker exec cpu-redis redis-cli ping | grep -q PONG; then break; fi
+            sleep 1
+          done
+          docker exec cpu-redis redis-cli ping | grep -q PONG
+          docker run -d --name cpu-api --network cpu-smoke \
+            -e ENABLE_TRACING=false -e REDIS_URL=redis://cpu-redis:6379/0 chatterbox-cpu:test
+          docker run -d --name cpu-worker --network cpu-smoke \
+            -e ENABLE_TRACING=false -e REDIS_URL=redis://cpu-redis:6379/0 \
+            chatterbox-cpu:test python -m worker.worker
+          for attempt in {1..30}; do
+            if docker exec cpu-api python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"; then break; fi
+            sleep 1
+          done
+          docker exec cpu-api python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"
+          for attempt in {1..30}; do
+            if docker logs cpu-worker 2>&1 | grep -q 'Listening on training'; then break; fi
+            sleep 1
+          done
+          docker logs cpu-worker 2>&1 | grep 'Listening on training'
+          test "$(docker inspect -f '{{.State.Running}}' cpu-worker)" = true
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ${{ env.REGISTRY_ENDPOINT }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push verified CPU image
+        if: github.event_name != 'pull_request'
+        env:
+          IMAGE_TAGS: ${{ steps.metadata.outputs.tags }}
+        run: |
+          while IFS= read -r tag; do
+            docker tag chatterbox-cpu:test "$tag"
+            docker push "$tag"
+          done <<< "$IMAGE_TAGS"

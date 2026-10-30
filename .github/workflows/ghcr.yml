@@ -6,6 +6,7 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+  pull_request:
 
 env:
   REGISTRY_ENDPOINT: ghcr.io
@@ -13,6 +14,7 @@ env:
 
 jobs:
   build-and-push:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -36,3 +38,51 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push images via Aspire pipeline
         run: aspire do push --non-interactive
+
+  cpu-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/metadata-action@v5
+        id: metadata
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=sha,format=long,prefix=sha-,suffix=-cpu
+            type=ref,event=tag,suffix=-cpu
+            type=raw,value=cpu,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
+      - name: Build CPU image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.cpu
+          platforms: linux/amd64
+          load: true
+          tags: chatterbox-cpu:test
+          labels: ${{ steps.metadata.outputs.labels }}
+          cache-from: type=gha,scope=cpu
+          cache-to: type=gha,mode=max,scope=cpu
+      - name: Verify CPU speech dependencies, API and worker
+        run: |
+          docker run --rm --entrypoint python \
+            -v "$PWD/tests/smoke_cpu.py:/smoke_cpu.py:ro" \
+            chatterbox-cpu:test /smoke_cpu.py
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ${{ env.REGISTRY_ENDPOINT }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push verified CPU image
+        if: github.event_name != 'pull_request'
+        env:
+          IMAGE_TAGS: ${{ steps.metadata.outputs.tags }}
+        run: |
+          while IFS= read -r tag; do
+            docker tag chatterbox-cpu:test "$tag"
+            docker push "$tag"
+          done <<< "$IMAGE_TAGS"

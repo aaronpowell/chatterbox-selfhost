@@ -84,6 +84,27 @@ contents are not included in these diagnostic fields. Use the response's
 
 ## Docker
 
+The CPU image includes the speech dependencies and CPU-only PyTorch wheels.
+Both the API and worker use the same image:
+
+```text
+ghcr.io/aaronpowell/chatterbox-selfhost:cpu
+ghcr.io/aaronpowell/chatterbox-selfhost:v0.1.0-cpu
+ghcr.io/aaronpowell/chatterbox-selfhost:sha-<full-commit-sha>-cpu
+```
+
+`cpu` tracks main and releases. Version tags are published on `v*` Git tags;
+pin a version or image digest for reproducible deployments. Images currently
+target Linux AMD64. The default command starts the API on `0.0.0.0:8000`;
+override it with `python -m worker.worker` for the worker. Existing audio,
+models and data mounts and environment settings remain compatible.
+
+Publishing verifies TTS imports, CPU-only PyTorch, WAV encoding/decoding, API
+startup and worker imports before pushing. It does not download model weights
+or perform real speech synthesis; weights are downloaded on first use.
+The Aspire-generated `/api` and `/worker` images are separate development
+artifacts with timestamp tags, not the versioned CPU speech image.
+
 Generate Compose artifacts from the AppHost model:
 
 ```bash

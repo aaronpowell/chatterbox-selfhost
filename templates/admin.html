@@ -846,7 +846,11 @@ function toast(msg, type = "info", duration = 3500) {
   const el = document.createElement("div");
   el.className = `toast ${type}`;
   const icon = type === "success" ? "✅" : type === "error" ? "❌" : "ℹ️";
-  el.innerHTML = `<span>${icon}</span><span>${msg}</span>`;
+  const iconEl = document.createElement("span");
+  iconEl.textContent = icon;
+  const messageEl = document.createElement("span");
+  messageEl.textContent = msg;
+  el.append(iconEl, messageEl);
   document.getElementById("toastContainer").appendChild(el);
   setTimeout(() => {
     el.style.animation = "fadeOut .3s ease forwards";
@@ -875,12 +879,14 @@ let voices = [];
 async function loadVoices() {
   try {
     const res = await fetch("/profiles");
-    if (res.ok) voices = await res.json();
+    if (!res.ok) throw new Error(`Could not load voices (${res.status}).`);
+    voices = await res.json();
   } catch (e) {
     console.warn("Could not load voices:", e);
+    toast("Could not load voices: " + e.message, "error");
   }
-  renderVoiceList();
   renderVoiceSelect();
+  renderVoiceList();
 }
 
 function selectVoice(card, id) {
@@ -922,7 +928,7 @@ function renderVoiceList() {
     card.dataset.id = v.id;
     const initial = (v.name || "?")[0].toUpperCase();
     card.innerHTML = `
-      <div class="voice-avatar">${initial}</div>
+      <div class="voice-avatar">${escHtml(initial)}</div>
       <div class="voice-info">
         <div class="voice-name">${escHtml(v.name)}</div>
         <div class="voice-lang">${escHtml(v.language)}</div>
@@ -939,9 +945,15 @@ function renderVoiceList() {
         </button>
       </div>`;
     card.addEventListener("click", () => selectVoice(card, v.id));
-    card.querySelector(".voice-delete").addEventListener("click", async (event) => {
+    const deleteButton = card.querySelector(".voice-delete");
+    deleteButton.addEventListener("click", async (event) => {
       event.stopPropagation();
-      await deleteVoice(v.id, v.name);
+      deleteButton.disabled = true;
+      try {
+        await deleteVoice(v.id, v.name);
+      } finally {
+        deleteButton.disabled = false;
+      }
     });
     list.appendChild(card);
   });
@@ -967,7 +979,9 @@ async function deleteVoice(id, name) {
     if (String(id) === selectedVoice) {
       document.getElementById("ttsVoice").value = "";
     }
-    await loadVoices();
+    voices = voices.filter(v => String(v.id) !== String(id));
+    renderVoiceSelect();
+    renderVoiceList();
     toast(`Voice "${name}" deleted.`, "success");
   } catch (e) {
     toast("Error: " + e.message, "error", 5000);
@@ -984,7 +998,7 @@ function renderVoiceSelect() {
     opt.textContent = v.name + " (" + v.language + ")";
     sel.appendChild(opt);
   });
-  sel.value = prev;
+  sel.value = voices.some(v => String(v.id) === prev) ? prev : "";
 }
 
 // Keep the sidebar highlight in sync when the dropdown changes directly.
@@ -996,7 +1010,8 @@ document.getElementById("ttsVoice").addEventListener("change", (e) => {
 });
 
 function escHtml(s) {
-  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
 }
 
 loadVoices();
@@ -1112,7 +1127,8 @@ document.getElementById("generateBtn").addEventListener("click", async () => {
     dl.href = url;
     dl.download = "speech." + format;
 
-    const generationMs = Number(res.headers.get("X-Generation-Time-Ms"));
+    const generationHeader = res.headers.get("X-Generation-Time-Ms");
+    const generationMs = generationHeader == null || generationHeader.trim() === "" ? NaN : Number(generationHeader);
     const timing = document.getElementById("generationTiming");
     if (Number.isFinite(generationMs) && generationMs >= 0) {
       timing.textContent = `Generated in ${(generationMs / 1000).toFixed(2)}s`;

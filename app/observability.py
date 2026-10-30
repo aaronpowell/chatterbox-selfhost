@@ -25,7 +25,6 @@ _logging_configured = False
 _tracing_configured = False
 _fastapi_instrumented = False
 _sqlalchemy_instrumented = False
-_otlp_logging_attached = False
 
 _HTTP_OTLP_PROTOCOL = "http/protobuf"
 _GRPC_OTLP_PROTOCOL = "grpc"
@@ -112,24 +111,17 @@ def _build_exporter_endpoint(otlp_endpoint: str | None, seq_uri: str | None) -> 
     if otlp_endpoint:
         return otlp_endpoint
     if seq_uri:
-        return seq_uri.rstrip("/")
+        return f"{seq_uri.rstrip('/')}/ingest/otlp"
     return None
 
 
 def _resolve_otlp_protocol(otlp_protocol: str, endpoint: str | None, seq_uri: str | None) -> str:
+    if not endpoint and seq_uri:
+        return _HTTP_OTLP_PROTOCOL
     normalized_protocol = otlp_protocol.lower()
     if normalized_protocol in {_GRPC_OTLP_PROTOCOL, _HTTP_OTLP_PROTOCOL}:
         return normalized_protocol
-
-    resolved_endpoint = endpoint or seq_uri or ""
-    if (
-        "/v1/" in resolved_endpoint
-        or "/ingest/otlp/" in resolved_endpoint
-        or ":4318" in resolved_endpoint
-    ):
-        return _HTTP_OTLP_PROTOCOL
-
-    return _GRPC_OTLP_PROTOCOL
+    raise ValueError(f"Unsupported OTLP protocol: {otlp_protocol}")
 
 
 def _normalize_signal_endpoint(*, endpoint: str, signal: str, protocol: str) -> str:
@@ -139,50 +131,49 @@ def _normalize_signal_endpoint(*, endpoint: str, signal: str, protocol: str) -> 
 
     parsed = urlparse(endpoint)
     current_path = parsed.path.rstrip("/")
-    if signal in current_path or current_path.startswith("/ingest/otlp/"):
-        return endpoint.rstrip("/")
-
-    return urlunparse(parsed._replace(path=f"/v1/{signal}", params="", query="", fragment="")).rstrip("/")
+    if current_path.endswith(("/v1/traces", "/v1/logs", "/v1/metrics")):
+        current_path = current_path.rsplit("/v1/", 1)[0]
+    return urlunparse(parsed._replace(path=f"{current_path}/v1/{signal}"))
 
 
 def _create_span_exporter(*, endpoint: str, protocol: str):
+    protocol = os.getenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", protocol)
     if protocol == _HTTP_OTLP_PROTOCOL:
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-
-        return OTLPSpanExporter(endpoint=_normalize_signal_endpoint(endpoint=endpoint, signal="traces", protocol=protocol))
-
-    try:
+    elif protocol == _GRPC_OTLP_PROTOCOL:
         from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-    except ModuleNotFoundError:
-        logging.getLogger(__name__).warning(
-            "OTLP protocol is set to grpc but grpc exporter dependency is missing. "
-            "Falling back to OTLP HTTP exporter for traces."
-        )
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    else:
+        raise ValueError(f"Unsupported OTLP traces protocol: {protocol}")
 
-        return OTLPSpanExporter(endpoint=_normalize_signal_endpoint(endpoint=endpoint, signal="traces", protocol=_HTTP_OTLP_PROTOCOL))
-
-    return OTLPSpanExporter(endpoint=_normalize_signal_endpoint(endpoint=endpoint, signal="traces", protocol=protocol))
+    return OTLPSpanExporter(
+        endpoint=os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+        or _normalize_signal_endpoint(endpoint=endpoint, signal="traces", protocol=protocol),
+    )
 
 
 def _create_log_exporter(*, endpoint: str, protocol: str):
+    protocol = os.getenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", protocol)
     if protocol == _HTTP_OTLP_PROTOCOL:
         from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
-
-        return OTLPLogExporter(endpoint=_normalize_signal_endpoint(endpoint=endpoint, signal="logs", protocol=protocol))
-
-    try:
+    elif protocol == _GRPC_OTLP_PROTOCOL:
         from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
-    except ModuleNotFoundError:
-        logging.getLogger(__name__).warning(
-            "OTLP protocol is set to grpc but grpc exporter dependency is missing. "
-            "Falling back to OTLP HTTP exporter for logs."
-        )
-        from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
+    else:
+        raise ValueError(f"Unsupported OTLP logs protocol: {protocol}")
 
-        return OTLPLogExporter(endpoint=_normalize_signal_endpoint(endpoint=endpoint, signal="logs", protocol=_HTTP_OTLP_PROTOCOL))
+    return OTLPLogExporter(
+        endpoint=os.getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT")
+        or _normalize_signal_endpoint(endpoint=endpoint, signal="logs", protocol=protocol),
+    )
 
-    return OTLPLogExporter(endpoint=_normalize_signal_endpoint(endpoint=endpoint, signal="logs", protocol=protocol))
+
+def _attach_log_handler(logger_provider: LoggerProvider) -> None:
+    handler = LoggingHandler(logger_provider=logger_provider)
+    handler.addFilter(ObservabilityContextFilter())
+    # Exporter failures must remain console-only to avoid a failing-export loop.
+    handler.addFilter(lambda record: not record.name.startswith("opentelemetry."))
+    logging.getLogger().addHandler(handler)
+    for name in ("uvicorn", "uvicorn.access", "uvicorn.error", "rq.worker"):
+        logging.getLogger(name).addHandler(handler)
 
 
 def configure_tracing(
@@ -194,23 +185,23 @@ def configure_tracing(
     otlp_protocol: str,
     seq_uri: str | None = None,
 ) -> None:
-    global _tracing_configured, _otlp_logging_attached
+    global _tracing_configured
     if _tracing_configured:
         return
 
-    resource = Resource.create(
-        {
-            SERVICE_NAME: service_name,
-            DEPLOYMENT_ENVIRONMENT: environment,
-            SERVICE_INSTANCE_ID: os.getenv("HOSTNAME") or os.getenv("COMPUTERNAME") or socket.gethostname(),
-        }
-    )
+    resource = Resource.create({DEPLOYMENT_ENVIRONMENT: environment})
+    defaults = {}
+    if str(resource.attributes.get(SERVICE_NAME, "")).startswith("unknown_service"):
+        defaults[SERVICE_NAME] = service_name
+    if SERVICE_INSTANCE_ID not in resource.attributes:
+        defaults[SERVICE_INSTANCE_ID] = os.getenv("HOSTNAME") or os.getenv("COMPUTERNAME") or socket.gethostname()
+    resource = resource.merge(Resource(defaults))
     provider = TracerProvider(resource=resource)
 
     if enable_tracing:
         endpoint = _build_exporter_endpoint(otlp_endpoint, seq_uri)
         if endpoint:
-            protocol = _resolve_otlp_protocol(otlp_protocol, endpoint, seq_uri)
+            protocol = _resolve_otlp_protocol(otlp_protocol, otlp_endpoint, seq_uri)
             provider.add_span_processor(
                 BatchSpanProcessor(
                     _create_span_exporter(endpoint=endpoint, protocol=protocol),
@@ -223,9 +214,7 @@ def configure_tracing(
                 )
             )
             set_logger_provider(logger_provider)
-            if not _otlp_logging_attached:
-                logging.getLogger().addHandler(LoggingHandler(logger_provider=logger_provider))
-                _otlp_logging_attached = True
+            _attach_log_handler(logger_provider)
             atexit.register(logger_provider.shutdown)
         else:
             logging.getLogger(__name__).warning(

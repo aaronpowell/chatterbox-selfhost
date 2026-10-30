@@ -3,6 +3,7 @@ import io
 import logging
 import shutil
 import subprocess
+import wave
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -73,12 +74,19 @@ def _convert_m4a_to_wav(content: bytes) -> bytes:
 
 
 def _validate_audio_format(content: bytes) -> None:
-    """Raise HTTPException 422 if the audio bytes are not readable by libsndfile.
-
-    Only runs when soundfile is installed (i.e. the tts extra is present).
-    Skips validation silently in stripped environments so the API still boots.
-    """
+    """Reject unreadable or empty audio; validate WAVs without the TTS extra too."""
+    if not content:
+        raise HTTPException(status_code=422, detail=_EMPTY_AUDIO_DETAIL)
     if not _SOUNDFILE_AVAILABLE:
+        if content.startswith(b"RIFF"):
+            try:
+                with wave.open(io.BytesIO(content), "rb") as wav_file:
+                    frames = wav_file.getnframes()
+            except (wave.Error, EOFError) as exc:
+                logger.warning("Rejected invalid WAV reference audio.", exc_info=exc)
+                raise HTTPException(status_code=422, detail=_UNSUPPORTED_FORMAT_DETAIL) from exc
+            if frames <= 0:
+                raise HTTPException(status_code=422, detail=_EMPTY_AUDIO_DETAIL)
         return
     import soundfile as sf  # type: ignore
 
@@ -133,7 +141,9 @@ async def upload_reference_audio(
 
         content = await file.read()
         span.set_attribute("upload.size_bytes", len(content))
-        filename = file.filename or "reference-audio.wav"
+        filename = Path((file.filename or "reference-audio.wav").replace("\\", "/")).name
+        if filename in {"", ".", ".."}:
+            raise HTTPException(status_code=422, detail="Invalid reference audio filename.")
         if _SOUNDFILE_AVAILABLE:
             try:
                 _validate_audio_format(content)
@@ -143,6 +153,8 @@ async def upload_reference_audio(
                 content = _convert_m4a_to_wav(content)
                 filename = f"{Path(filename).stem}.wav"
                 _validate_audio_format(content)
+        else:
+            _validate_audio_format(content)
 
         target_dir = Path("audio") / "profiles" / str(profile_id)
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -166,14 +178,17 @@ def delete_profile(profile_id: int, session: Session = Depends(get_session)):
         if not profile:
             raise HTTPException(status_code=404, detail="Profile not found.")
 
-        if profile.reference_audio_path:
-            reference_audio_path = Path(profile.reference_audio_path)
-            if reference_audio_path.exists():
-                reference_audio_path.unlink()
-
         profile_audio_dir = Path("audio") / "profiles" / str(profile_id)
-        if profile_audio_dir.exists():
-            shutil.rmtree(profile_audio_dir)
+        profiles_root = (Path("audio") / "profiles").resolve()
+        if profile_audio_dir.is_symlink() or profile_audio_dir.resolve().parent != profiles_root:
+            logger.error("Refusing to delete voice profile %s: audio directory is outside profile storage.", profile_id)
+            raise HTTPException(status_code=409, detail="Profile audio directory is outside profile storage.")
+        try:
+            if profile_audio_dir.exists():
+                shutil.rmtree(profile_audio_dir)
+        except OSError as exc:
+            logger.exception("Could not remove audio for voice profile %s", profile_id)
+            raise HTTPException(status_code=500, detail="Could not remove profile audio. Please try again.") from exc
 
         profile_name = profile.name
         session.delete(profile)

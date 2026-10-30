@@ -5,7 +5,7 @@ import time
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.api.routes.health import router as health_router
@@ -86,6 +86,11 @@ async def log_request(request: Request, call_next):
 @app.get("/admin", response_class=HTMLResponse, tags=["admin"])
 def admin(request: Request):
     return templates.TemplateResponse(request=request, name="admin.html", context={"app_name": settings.app_name})
+
+
+@app.get("/", include_in_schema=False)
+def home():
+    return RedirectResponse(url="/admin")
 
 
 app.include_router(health_router)

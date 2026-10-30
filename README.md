@@ -100,7 +100,7 @@ override it with `python -m worker.worker` for the worker. Existing audio,
 models and data mounts and environment settings remain compatible.
 
 Publishing verifies TTS imports, CPU-only PyTorch, WAV encoding/decoding, API
-startup and worker imports before pushing. It does not download model weights
+startup and worker startup against Redis before pushing. It does not download model weights
 or perform real speech synthesis; weights are downloaded on first use.
 The Aspire-generated `/api` and `/worker` images are separate development
 artifacts with timestamp tags, not the versioned CPU speech image.

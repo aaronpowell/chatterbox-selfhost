@@ -71,6 +71,32 @@ jobs:
           docker run --rm --entrypoint python \
             -v "$PWD/tests/smoke_cpu.py:/smoke_cpu.py:ro" \
             chatterbox-cpu:test /smoke_cpu.py
+      - name: Verify container startup commands
+        run: |
+          trap 'docker logs cpu-api; docker logs cpu-worker; docker rm -f cpu-api cpu-worker cpu-redis; docker network rm cpu-smoke' EXIT
+          docker network create cpu-smoke
+          docker run -d --name cpu-redis --network cpu-smoke redis:7-alpine
+          for attempt in {1..30}; do
+            if docker exec cpu-redis redis-cli ping | grep -q PONG; then break; fi
+            sleep 1
+          done
+          docker exec cpu-redis redis-cli ping | grep -q PONG
+          docker run -d --name cpu-api --network cpu-smoke \
+            -e ENABLE_TRACING=false -e REDIS_URL=redis://cpu-redis:6379/0 chatterbox-cpu:test
+          docker run -d --name cpu-worker --network cpu-smoke \
+            -e ENABLE_TRACING=false -e REDIS_URL=redis://cpu-redis:6379/0 \
+            chatterbox-cpu:test python -m worker.worker
+          for attempt in {1..30}; do
+            if docker exec cpu-api python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"; then break; fi
+            sleep 1
+          done
+          docker exec cpu-api python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"
+          for attempt in {1..30}; do
+            if docker logs cpu-worker 2>&1 | grep -q 'Listening on training'; then break; fi
+            sleep 1
+          done
+          docker logs cpu-worker 2>&1 | grep 'Listening on training'
+          test "$(docker inspect -f '{{.State.Running}}' cpu-worker)" = true
       - uses: docker/login-action@v3
         if: github.event_name != 'pull_request'
         with:

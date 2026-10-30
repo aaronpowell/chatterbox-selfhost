@@ -2,10 +2,13 @@
 
 import os
 from pathlib import Path
+import sys
 from tempfile import TemporaryDirectory
 
 
 def main():
+    # Match uvicorn's default app directory and `python -m worker.worker`.
+    sys.path.insert(0, str(Path.cwd()))
     with TemporaryDirectory() as directory:
         root = Path(directory)
         os.environ.update(

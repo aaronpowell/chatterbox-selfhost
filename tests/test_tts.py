@@ -1,4 +1,6 @@
+import io
 import logging
+import wave
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -6,6 +8,84 @@ import pytest
 
 from app.models import VoiceProfile
 from app.services.chatterbox_service import chatterbox_service
+
+
+def _empty_wav_file(path):
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(22050)
+        wf.writeframes(b"")
+    path.write_bytes(buffer.getvalue())
+
+
+@pytest.mark.parametrize("endpoint", ["/audio/speech", "/audio/v1/audio/speech"])
+def test_create_speech_includes_generation_timing_header(client, tmp_path, endpoint):
+    output_file = tmp_path / "speech.wav"
+    output_file.write_bytes(b"RIFF\x00\x00\x00\x00WAVE")
+
+    with (
+        patch("app.api.routes.tts.chatterbox_service._available", True),
+        patch("app.api.routes.tts.chatterbox_service.synthesize", return_value=str(output_file)) as synthesize,
+        patch("app.api.routes.tts.time", SimpleNamespace(perf_counter=Mock(side_effect=[10.0, 12.5]))),
+    ):
+        response = client.post(endpoint, json={"text": "hello world"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/wav"
+    assert "x-generation-time-ms" in response.headers
+    assert response.headers["x-generation-time-ms"] == "2500"
+    synthesize.assert_called_once()
+
+
+def test_openai_compatible_speech_includes_generation_timing_header(client, tmp_path):
+    output_file = tmp_path / "speech.wav"
+    output_file.write_bytes(b"RIFF\x00\x00\x00\x00WAVE")
+
+    with (
+        patch("app.api.routes.tts.chatterbox_service._available", True),
+        patch("app.api.routes.tts.chatterbox_service.synthesize", return_value=str(output_file)),
+    ):
+        response = client.post("/audio/v1/audio/speech", json={"text": "hello world"})
+
+    assert response.status_code == 200
+    assert "x-generation-time-ms" in response.headers
+
+
+def test_create_speech_rejects_empty_voice_prompt(client, db_session, tmp_path):
+    empty_prompt = tmp_path / "empty.wav"
+    _empty_wav_file(empty_prompt)
+
+    profile = VoiceProfile(name="empty-profile", language="en", reference_audio_path=str(empty_prompt))
+    db_session.add(profile)
+    db_session.commit()
+    db_session.refresh(profile)
+
+    with patch("app.api.routes.tts.chatterbox_service._available", True):
+        response = client.post(
+            "/audio/speech",
+            json={"text": "hello world", "voice_profile_id": profile.id},
+        )
+
+    assert response.status_code == 422
+    assert "empty" in response.json()["detail"].lower()
+
+
+def test_invalid_wav_prompt_without_soundfile_returns_422(client, db_session, tmp_path):
+    prompt = tmp_path / "invalid.wav"
+    prompt.write_bytes(b"RIFF")
+    profile = VoiceProfile(name="invalid-prompt", reference_audio_path=str(prompt))
+    db_session.add(profile)
+    db_session.commit()
+    with (
+        patch.object(chatterbox_service, "_available", True),
+        patch("app.api.routes.tts._SOUNDFILE_AVAILABLE", False),
+        patch.object(chatterbox_service, "synthesize") as synthesize,
+    ):
+        response = client.post("/audio/speech", json={"text": "hello", "voice_profile_id": profile.id})
+    assert response.status_code == 422
+    synthesize.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -18,8 +98,14 @@ from app.services.chatterbox_service import chatterbox_service
     ],
 )
 @pytest.mark.parametrize("endpoint", ["/audio/speech", "/audio/v1/audio/speech"])
-def test_synthesis_failure_logs_context_and_traceback(client, db_session, caplog, stage, error, endpoint):
-    profile = VoiceProfile(name="test-voice", reference_audio_path="missing-reference.wav")
+def test_synthesis_failure_logs_context_and_traceback(client, db_session, tmp_path, caplog, stage, error, endpoint):
+    prompt = tmp_path / "reference.wav"
+    with wave.open(str(prompt), "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(22050)
+        wav_file.writeframes(b"\x00\x00" * 100)
+    profile = VoiceProfile(name="test-voice", reference_audio_path=str(prompt))
     db_session.add(profile)
     db_session.commit()
     db_session.refresh(profile)
@@ -55,7 +141,7 @@ def test_synthesis_failure_logs_context_and_traceback(client, db_session, caplog
     )
     assert f"stage={stage}" in service_record.getMessage()
     assert "device=cpu" in service_record.getMessage()
-    assert "reference_audio=missing-reference.wav" in service_record.getMessage()
+    assert f"reference_audio={prompt}" in service_record.getMessage()
     assert f"text_length={len(text)}" in service_record.getMessage()
     assert "output_path=" in service_record.getMessage()
     api_record = next(record for record in caplog.records if record.name == "app.api.routes.tts")

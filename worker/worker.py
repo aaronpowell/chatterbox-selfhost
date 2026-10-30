@@ -13,6 +13,7 @@ configure_observability(
     log_level=settings.log_level,
     enable_tracing=settings.enable_tracing,
     otlp_endpoint=settings.otlp_endpoint,
+    otlp_protocol=settings.otlp_protocol,
     seq_uri=settings.seq_uri,
 )
 logger = logging.getLogger(__name__)

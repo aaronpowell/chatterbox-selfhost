@@ -23,6 +23,10 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("OTEL_EXPORTER_OTLP_ENDPOINT", "OBSERVABILITY_OTLP_ENDPOINT"),
     )
+    otlp_protocol: Literal["grpc", "http/protobuf"] = Field(
+        default="grpc",
+        validation_alias=AliasChoices("OTEL_EXPORTER_OTLP_PROTOCOL"),
+    )
     seq_uri: str | None = Field(default=None, validation_alias=AliasChoices("SEQ_URI"))
 
     audio_storage_path: str = "./audio"

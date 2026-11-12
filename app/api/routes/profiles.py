@@ -6,7 +6,7 @@ import subprocess
 import wave
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlmodel import Session, select
 
 from app.db import get_session
@@ -82,12 +82,14 @@ def _validate_audio_format(content: bytes) -> None:
             try:
                 with wave.open(io.BytesIO(content), "rb") as wav_file:
                     frames = wav_file.getnframes()
+                    has_audio = bool(wav_file.readframes(1))
             except (wave.Error, EOFError) as exc:
                 logger.warning("Rejected invalid WAV reference audio.", exc_info=exc)
                 raise HTTPException(status_code=422, detail=_UNSUPPORTED_FORMAT_DETAIL) from exc
-            if frames <= 0:
+            if frames <= 0 or not has_audio:
                 raise HTTPException(status_code=422, detail=_EMPTY_AUDIO_DETAIL)
-        return
+            return
+        raise HTTPException(status_code=422, detail=_UNSUPPORTED_FORMAT_DETAIL)
     import soundfile as sf  # type: ignore
 
     try:
@@ -101,7 +103,14 @@ def _validate_audio_format(content: bytes) -> None:
 
 @router.get("")
 def list_profiles(session: Session = Depends(get_session)):
-    return session.exec(select(VoiceProfile)).all()
+    profiles = session.exec(select(VoiceProfile)).all()
+    return [
+        {
+            **profile.model_dump(),
+            "audio_ready": bool(profile.reference_audio_path) and Path(profile.reference_audio_path).is_file(),
+        }
+        for profile in profiles
+    ]
 
 
 @router.post("")
@@ -125,6 +134,60 @@ def create_profile(payload: VoiceProfileCreate, session: Session = Depends(get_s
         return profile
 
 
+async def _prepare_reference_audio(file: UploadFile) -> tuple[str, bytes]:
+    content = await file.read()
+    filename = Path((file.filename or "reference-audio.wav").replace("\\", "/")).name
+    if filename in {"", ".", ".."}:
+        raise HTTPException(status_code=422, detail="Invalid reference audio filename.")
+    try:
+        _validate_audio_format(content)
+    except HTTPException:
+        if not content or not _is_m4a_upload(filename, file.content_type):
+            raise
+        content = _convert_m4a_to_wav(content)
+        filename = f"{Path(filename).stem}.wav"
+        _validate_audio_format(content)
+    return filename, content
+
+
+@router.post("/with-audio")
+async def create_profile_with_audio(
+    name: str = Form(min_length=2, max_length=64),
+    language: str = Form(default="en", min_length=2, max_length=16),
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+):
+    existing = session.exec(select(VoiceProfile).where(VoiceProfile.name == name)).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="Profile name already exists.")
+
+    filename, content = await _prepare_reference_audio(file)
+    profile = VoiceProfile(name=name, language=language, reference_audio_path="")
+    target_dir = None
+    directory_created = False
+    try:
+        session.add(profile)
+        session.flush()
+        target_dir = Path("audio") / "profiles" / str(profile.id)
+        target_dir.mkdir(parents=True, exist_ok=False)
+        directory_created = True
+        target_file = target_dir / filename
+        target_file.write_bytes(content)
+        profile.reference_audio_path = str(target_file)
+        session.commit()
+    except Exception:
+        session.rollback()
+        if directory_created and target_dir is not None:
+            try:
+                shutil.rmtree(target_dir)
+            except OSError:
+                logger.exception("Could not clean up audio after profile creation failed: %s", target_dir)
+        raise
+    session.refresh(profile)
+    logger.info("Created voice profile %s (%s) with reference audio", profile.id, profile.name)
+    return profile
+
+
 @router.post("/{profile_id}/reference-audio")
 async def upload_reference_audio(
     profile_id: int,
@@ -139,22 +202,8 @@ async def upload_reference_audio(
         if not profile:
             raise HTTPException(status_code=404, detail="Profile not found.")
 
-        content = await file.read()
+        filename, content = await _prepare_reference_audio(file)
         span.set_attribute("upload.size_bytes", len(content))
-        filename = Path((file.filename or "reference-audio.wav").replace("\\", "/")).name
-        if filename in {"", ".", ".."}:
-            raise HTTPException(status_code=422, detail="Invalid reference audio filename.")
-        if _SOUNDFILE_AVAILABLE:
-            try:
-                _validate_audio_format(content)
-            except HTTPException:
-                if not _is_m4a_upload(filename, file.content_type):
-                    raise
-                content = _convert_m4a_to_wav(content)
-                filename = f"{Path(filename).stem}.wav"
-                _validate_audio_format(content)
-        else:
-            _validate_audio_format(content)
 
         target_dir = Path("audio") / "profiles" / str(profile_id)
         target_dir.mkdir(parents=True, exist_ok=True)

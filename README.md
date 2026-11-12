@@ -44,6 +44,11 @@ Open:
 ## Voice profiles and audio generation
 
 The voice library provides a delete button for each custom voice, with confirmation.
+Creating a voice in the admin portal requires a reference clip and saves the profile
+only after the clip is processed and stored. Incomplete profiles are unavailable for
+generation; upload a reference clip through `POST /profiles/{id}/reference-audio`
+or delete the profile. API clients can create a profile and clip together using
+multipart `POST /profiles/with-audio` (`name`, `language`, and `file`).
 Deleting a voice removes its profile and files in `audio/profiles/{id}`; the built-in
 voice and previously generated audio are not deleted. Deleting the selected voice
 switches selection back to the built-in voice. The API also supports
@@ -84,7 +89,7 @@ contents are not included in these diagnostic fields. Use the response's
 
 ## Docker
 
-The CPU image includes the speech dependencies and CPU-only PyTorch wheels.
+The CPU image includes ffmpeg, the speech dependencies and CPU-only PyTorch wheels.
 Both the API and worker use the same image:
 
 ```text

@@ -2,6 +2,7 @@
 
 import io
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import wave
@@ -126,8 +127,7 @@ class TestReferenceAudioValidation:
             assert response.json()["reference_audio_path"].endswith("voice.wav")
             ffmpeg_run.assert_called_once()
 
-    def test_upload_skips_validation_without_soundfile(self, client, tmp_path):
-        """When soundfile is absent, uploads are accepted without format checks."""
+    def test_upload_rejects_unverifiable_format_without_soundfile(self, client, tmp_path):
         with patch("app.api.routes.profiles._SOUNDFILE_AVAILABLE", False):
             response = client.post(
                 "/profiles",
@@ -140,7 +140,7 @@ class TestReferenceAudioValidation:
                 f"/profiles/{profile_id}/reference-audio",
                 files={"file": ("voice.mp3", _make_mp3_bytes(), "audio/mpeg")},
             )
-            assert response.status_code == 200
+            assert response.status_code == 422
 
     def test_empty_wav_upload_rejected(self, client, tmp_path):
         sf_mock = _soundfile_mock(raises=False)
@@ -272,3 +272,87 @@ class TestReferenceAudioValidation:
             response = client.delete(f"/profiles/{profile_id}")
         assert response.status_code == 409
         assert any(profile["id"] == profile_id for profile in client.get("/profiles").json())
+
+
+def test_create_profile_with_audio_is_ready(client):
+    with patch("app.api.routes.profiles._SOUNDFILE_AVAILABLE", False):
+        response = client.post(
+            "/profiles/with-audio",
+            data={"name": "complete", "language": "en"},
+            files={"file": ("voice.wav", _make_wav_bytes(), "audio/wav")},
+        )
+    assert response.status_code == 200
+    assert Path(response.json()["reference_audio_path"]).read_bytes() == _make_wav_bytes()
+    assert client.get("/profiles").json()[0]["audio_ready"] is True
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")
+def test_create_profile_transcodes_m4a_with_ffmpeg(client, tmp_path):
+    source = tmp_path / "source.wav"
+    encoded = tmp_path / "source.m4a"
+    source.write_bytes(_make_wav_bytes())
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(source), str(encoded)],
+        check=True,
+        capture_output=True,
+    )
+    with patch("app.api.routes.profiles._SOUNDFILE_AVAILABLE", False):
+        response = client.post(
+            "/profiles/with-audio",
+            data={"name": "m4a-voice"},
+            files={"file": ("voice.m4a", encoded.read_bytes(), "audio/mp4")},
+        )
+    assert response.status_code == 200
+    with wave.open(response.json()["reference_audio_path"], "rb") as wav:
+        assert wav.readframes(1)
+
+
+@pytest.mark.parametrize("content", [b"", b"not audio"])
+def test_create_profile_with_bad_audio_does_not_save_profile(client, content):
+    with patch("app.api.routes.profiles._SOUNDFILE_AVAILABLE", False):
+        response = client.post(
+            "/profiles/with-audio",
+            data={"name": "invalid"},
+            files={"file": ("voice.wav", content, "audio/wav")},
+        )
+    assert response.status_code == 422
+    assert client.get("/profiles").json() == []
+    assert not Path("audio").exists()
+
+
+def test_create_profile_storage_failure_rolls_back(client):
+    with (
+        patch("app.api.routes.profiles._SOUNDFILE_AVAILABLE", False),
+        patch("app.api.routes.profiles.Path.write_bytes", side_effect=PermissionError("read-only")),
+        pytest.raises(PermissionError),
+    ):
+        client.post(
+            "/profiles/with-audio",
+            data={"name": "storage-failure"},
+            files={"file": ("voice.wav", _make_wav_bytes(), "audio/wav")},
+        )
+    assert client.get("/profiles").json() == []
+    assert not (Path("audio") / "profiles" / "1").exists()
+
+
+def test_create_profile_preserves_existing_directory_on_collision(client):
+    existing = Path("audio") / "profiles" / "1"
+    existing.mkdir(parents=True)
+    original = existing / "original.wav"
+    original.write_bytes(b"existing")
+    with (
+        patch("app.api.routes.profiles._SOUNDFILE_AVAILABLE", False),
+        pytest.raises(FileExistsError),
+    ):
+        client.post(
+            "/profiles/with-audio",
+            data={"name": "collision"},
+            files={"file": ("voice.wav", _make_wav_bytes(), "audio/wav")},
+        )
+    assert original.read_bytes() == b"existing"
+    assert client.get("/profiles").json() == []
+
+
+def test_profile_list_marks_missing_audio_not_ready(client):
+    client.post("/profiles", json={"name": "incomplete"})
+    assert client.get("/profiles").json()[0]["audio_ready"] is False

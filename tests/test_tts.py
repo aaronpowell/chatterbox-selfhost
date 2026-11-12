@@ -72,6 +72,22 @@ def test_create_speech_rejects_empty_voice_prompt(client, db_session, tmp_path):
     assert "empty" in response.json()["detail"].lower()
 
 
+@pytest.mark.parametrize("endpoint", ["/audio/speech", "/audio/v1/audio/speech"])
+@pytest.mark.parametrize("path", ["", "missing-reference.wav"])
+def test_create_speech_rejects_profile_without_reference_audio(client, db_session, endpoint, path):
+    profile = VoiceProfile(name="incomplete-profile", reference_audio_path=path)
+    db_session.add(profile)
+    db_session.commit()
+    with (
+        patch.object(chatterbox_service, "_available", True),
+        patch.object(chatterbox_service, "synthesize") as synthesize,
+    ):
+        response = client.post(endpoint, json={"text": "hello", "voice_profile_id": profile.id})
+    assert response.status_code == 422
+    assert "reference audio" in response.json()["detail"].lower()
+    synthesize.assert_not_called()
+
+
 def test_invalid_wav_prompt_without_soundfile_returns_422(client, db_session, tmp_path):
     prompt = tmp_path / "invalid.wav"
     prompt.write_bytes(b"RIFF")

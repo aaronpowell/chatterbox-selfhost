@@ -495,6 +495,21 @@
       align-items: center;
       gap: 1rem;
     }
+    .record-script {
+      width: 100%;
+      padding: 1rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--surface-2);
+      color: var(--text-muted);
+      font-size: .875rem;
+      line-height: 1.6;
+    }
+    .record-script strong {
+      display: block;
+      margin-bottom: .35rem;
+      color: var(--text);
+    }
     .record-visualizer {
       width: 100%;
       height: 80px;
@@ -771,6 +786,11 @@
         <!-- Record panel -->
         <div id="src-record" style="display:none">
           <div class="record-panel">
+            <div class="record-script">
+              <strong>Read this passage aloud</strong>
+              Speak naturally and at your usual pace:
+              “On a quiet morning, I opened the window and listened to the city wake up. A bus rumbled past, birds called from the trees, and someone laughed nearby. I made a cup of tea, gathered my things, and stepped outside. The air was cool, the sky was bright, and the day felt full of possibility.”
+            </div>
             <canvas class="record-visualizer" id="visualizer"></canvas>
             <div class="record-controls">
               <button class="btn btn-danger" id="recordBtn">

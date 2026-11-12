@@ -22,7 +22,7 @@ _SOUNDFILE_AVAILABLE = importlib.util.find_spec("soundfile") is not None
 
 def _validate_voice_prompt(path: str) -> None:
     prompt_path = Path(path)
-    if not prompt_path.exists():
+    if not prompt_path.is_file():
         raise HTTPException(status_code=422, detail="Voice profile reference audio file is missing.")
 
     if not _SOUNDFILE_AVAILABLE:
@@ -70,13 +70,14 @@ def create_speech(payload: TTSRequest, session: Session = Depends(get_session)):
             )
 
         voice_prompt = None
-        if payload.voice_profile_id:
+        if payload.voice_profile_id is not None:
             profile = session.get(VoiceProfile, payload.voice_profile_id)
             if not profile:
                 raise HTTPException(status_code=404, detail="Voice profile not found.")
-            voice_prompt = profile.reference_audio_path or None
-            if voice_prompt:
-                _validate_voice_prompt(voice_prompt)
+            if not profile.reference_audio_path:
+                raise HTTPException(status_code=422, detail="Voice profile has no reference audio. Upload a reference clip.")
+            voice_prompt = profile.reference_audio_path
+            _validate_voice_prompt(voice_prompt)
 
         try:
             synthesis_started = time.perf_counter()

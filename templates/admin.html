@@ -931,10 +931,10 @@ function renderVoiceList() {
       <div class="voice-avatar">${escHtml(initial)}</div>
       <div class="voice-info">
         <div class="voice-name">${escHtml(v.name)}</div>
-        <div class="voice-lang">${escHtml(v.language)}</div>
+        <div class="voice-lang">${escHtml(v.language)}${v.audio_ready ? "" : " · Reference audio missing"}</div>
       </div>
       <div class="voice-actions">
-        <span class="badge">${v.reference_audio_path ? "✓" : "—"}</span>
+        <span class="badge">${v.audio_ready ? "✓" : "Audio required"}</span>
         <button class="voice-delete" title="Delete voice" aria-label="Delete ${escHtml(v.name)}">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
             <polyline points="3 6 5 6 21 6"/>
@@ -944,7 +944,9 @@ function renderVoiceList() {
           </svg>
         </button>
       </div>`;
-    card.addEventListener("click", () => selectVoice(card, v.id));
+    if (v.audio_ready) {
+      card.addEventListener("click", () => selectVoice(card, v.id));
+    }
     const deleteButton = card.querySelector(".voice-delete");
     deleteButton.addEventListener("click", async (event) => {
       event.stopPropagation();
@@ -992,13 +994,13 @@ function renderVoiceSelect() {
   const sel = document.getElementById("ttsVoice");
   const prev = sel.value;
   sel.innerHTML = '<option value="">★ Default voice (built-in)</option>';
-  voices.forEach(v => {
+  voices.filter(v => v.audio_ready).forEach(v => {
     const opt = document.createElement("option");
     opt.value = v.id;
     opt.textContent = v.name + " (" + v.language + ")";
     sel.appendChild(opt);
   });
-  sel.value = voices.some(v => String(v.id) === prev) ? prev : "";
+  sel.value = voices.some(v => v.audio_ready && String(v.id) === prev) ? prev : "";
 }
 
 // Keep the sidebar highlight in sync when the dropdown changes directly.
@@ -1283,41 +1285,33 @@ document.getElementById("saveVoiceBtn").addEventListener("click", async () => {
   let audioSource = activeSrc === "upload" ? chosenFile
     : activeSrc === "record" ? (recordedBlob ? new File([recordedBlob], "recording.webm", { type: "audio/webm" }) : null)
     : null;
+  if (!audioSource || !audioSource.size) {
+    toast("Choose or record a non-empty reference audio clip.", "error");
+    return;
+  }
 
   const btn = document.getElementById("saveVoiceBtn");
   btn.disabled = true;
   btn.textContent = "Saving…";
 
   try {
-    // 1. Create profile
-    const createRes = await fetch("/profiles", {
+    const fd = new FormData();
+    fd.append("name", name);
+    fd.append("language", lang);
+    fd.append("file", audioSource, audioSource.name);
+    const createRes = await fetch("/profiles/with-audio", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, language: lang }),
+      body: fd,
     });
     if (!createRes.ok) {
       const err = await createRes.json();
       toast(err.detail || "Failed to create profile.", "error");
       return;
     }
-    const profile = await createRes.json();
-
-    // 2. Upload reference audio if provided
-    if (audioSource) {
-      const fd = new FormData();
-      fd.append("file", audioSource, audioSource.name);
-      const upRes = await fetch(`/profiles/${profile.id}/reference-audio`, {
-        method: "POST",
-        body: fd,
-      });
-      if (!upRes.ok) {
-        toast("Profile created but audio upload failed.", "error");
-      }
-    }
-
     toast(`Voice "${name}" saved!`, "success");
     document.getElementById("voiceName").value = "";
     chosenFile = null;
+    fileInput.value = "";
     recordedBlob = null;
     recAudio.style.display = "none";
     recAudio.src = "";
